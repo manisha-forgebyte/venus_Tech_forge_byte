@@ -1,0 +1,619 @@
+==================================================
+VENU TECH - BACKEND ARCHITECTURE & PROJECT FLOW
+==================================================
+
+
+==================================================
+1. PROJECT ROOT STRUCTURE
+==================================================
+
+frontend/
+Angular frontend application
+
+Purpose:
+Contains UI, pages, forms, routing, frontend business flow.
+
+
+backend/
+NestJS backend application
+
+Purpose:
+Handles APIs, database, authentication, business logic, security.
+
+
+==================================================
+2. BACKEND MAIN STRUCTURE
+==================================================
+
+backend/
+│
+├── src/
+├── prisma/
+├── test/
+├── .env
+├── package.json
+└── tsconfig.json
+
+
+--------------------------------------------------
+src/
+--------------------------------------------------
+
+Main backend source code.
+
+Contains:
+- modules
+- configs
+- guards
+- services
+- controllers
+- reusable logic
+
+
+--------------------------------------------------
+prisma/
+--------------------------------------------------
+
+Database layer.
+
+Contains:
+- schema.prisma
+- migrations
+- seed.ts
+
+Purpose:
+Database structure & DB version control.
+
+
+--------------------------------------------------
+test/
+--------------------------------------------------
+
+Testing-related files.
+
+Purpose:
+Backend testing.
+
+
+--------------------------------------------------
+.env files
+--------------------------------------------------
+
+Stores:
+- database URLs
+- JWT secrets
+- API keys
+- ports
+
+Purpose:
+Secure environment configuration.
+
+
+==================================================
+3. CONFIG STRUCTURE
+==================================================
+
+src/config/
+
+
+app.config.ts
+----------------
+Application configuration.
+
+Example:
+- app name
+- ports
+- global settings
+
+
+database.config.ts
+----------------
+Database configuration.
+
+Example:
+- DB URL
+- DB connection settings
+
+
+jwt.config.ts
+----------------
+JWT authentication configuration.
+
+Example:
+- JWT secret
+- token expiry
+- auth settings
+
+
+==================================================
+4. CONSTANTS STRUCTURE
+==================================================
+
+src/constants/
+
+
+app.constants.ts
+----------------
+Global app constants.
+
+
+auth.constants.ts
+----------------
+Authentication constants.
+
+
+message.constants.ts
+----------------
+Success/error messages.
+
+
+role.constants.ts
+----------------
+User roles & permissions.
+
+
+Purpose of constants:
+Avoid repeated hardcoded values.
+
+
+==================================================
+5. COMMON STRUCTURE
+==================================================
+
+src/common/
+
+Reusable global backend components.
+
+
+--------------------------------------------------
+decorators/
+--------------------------------------------------
+
+Special reusable NestJS behaviors.
+
+Files:
+
+current-user.decorator.ts
+Gets logged-in user data.
+
+public.decorator.ts
+Marks API as public.
+
+roles.decorator.ts
+Defines allowed roles.
+
+
+Concept:
+Declarative Programming
+
+
+--------------------------------------------------
+filters/
+--------------------------------------------------
+
+Global error handling.
+
+Files:
+
+all-exceptions.filter.ts
+Handles unexpected errors.
+
+http-exception.filter.ts
+Handles HTTP errors.
+
+
+Concept:
+Centralized Exception Handling
+
+
+--------------------------------------------------
+guards/
+--------------------------------------------------
+
+Protect APIs.
+
+Files:
+
+jwt-auth.guard.ts
+Checks JWT token.
+
+roles.guard.ts
+Checks user roles.
+
+
+Concepts:
+Authentication
+Authorization
+
+
+--------------------------------------------------
+interceptors/
+--------------------------------------------------
+
+Runs before/after requests.
+
+Files:
+
+logging.interceptor.ts
+Logs API activity.
+
+response.interceptor.ts
+Formats responses.
+
+timeout.interceptor.ts
+Stops long-running requests.
+
+
+Concept:
+Cross-Cutting Concerns
+
+
+--------------------------------------------------
+middlewares/
+--------------------------------------------------
+
+Runs before controller.
+
+Files:
+
+logger.middleware.ts
+Request logging.
+
+request.middleware.ts
+Preprocess requests.
+
+
+Concept:
+Request Lifecycle
+
+
+--------------------------------------------------
+pipes/
+--------------------------------------------------
+
+Validates & transforms data.
+
+Files:
+
+parse-int.pipe.ts
+Converts string to number.
+
+trim.pipe.ts
+Removes extra spaces.
+
+validation.pipe.ts
+Validates request data.
+
+
+Concept:
+Input Validation & Sanitization
+
+
+--------------------------------------------------
+utils/
+--------------------------------------------------
+
+Reusable helper functions.
+
+Files:
+
+date.util.ts
+Date helpers.
+
+response.util.ts
+Standard API responses.
+
+token.util.ts
+JWT token helpers.
+
+
+Concept:
+DRY Principle
+(Don’t Repeat Yourself)
+
+
+==================================================
+6. MODULES STRUCTURE
+==================================================
+
+src/modules/
+
+Feature-based backend architecture.
+
+
+--------------------------------------------------
+auth/
+--------------------------------------------------
+
+Authentication system.
+
+Files:
+
+auth.controller.ts
+Handles auth APIs.
+
+auth.service.ts
+Auth business logic.
+
+auth.module.ts
+Connects auth feature.
+
+
+Folders:
+
+dto/
+Request validation models.
+
+entities/
+Database entities.
+
+guards/
+Auth-specific guards.
+
+strategies/
+JWT/passport strategies.
+
+
+Purpose:
+Login, JWT, authentication, authorization.
+
+
+--------------------------------------------------
+users/
+--------------------------------------------------
+
+User management system.
+
+Purpose:
+User CRUD operations.
+
+
+--------------------------------------------------
+companies/
+--------------------------------------------------
+
+Company management system.
+
+Purpose:
+Company-related APIs & logic.
+
+
+--------------------------------------------------
+assets/
+--------------------------------------------------
+
+File & asset management.
+
+Purpose:
+Upload & manage documents/files/images.
+
+
+--------------------------------------------------
+entities/
+--------------------------------------------------
+
+Business entities management.
+
+
+--------------------------------------------------
+filings/
+--------------------------------------------------
+
+Document filing system.
+
+Purpose:
+Reports, records, submissions.
+
+
+--------------------------------------------------
+market/
+--------------------------------------------------
+
+Market-related functionality.
+
+
+--------------------------------------------------
+reserve/
+--------------------------------------------------
+
+Reserve/business reserve functionality.
+
+
+--------------------------------------------------
+admin/
+--------------------------------------------------
+
+Admin-related features.
+
+
+==================================================
+7. SHARED STRUCTURE
+==================================================
+
+src/shared/
+
+Reusable shared resources.
+
+
+dto/
+Reusable DTOs
+
+
+helpers/
+Reusable helper logic
+
+
+interfaces/
+TypeScript interfaces
+
+
+services/
+Reusable shared services
+
+
+types/
+Custom TypeScript types
+
+
+Purpose:
+Avoid duplicated code.
+
+
+==================================================
+8. PRISMA STRUCTURE
+==================================================
+
+src/prisma/
+
+
+schema.prisma
+----------------
+Main database schema.
+
+Defines:
+- tables
+- relationships
+- fields
+- indexes
+
+
+migrations/
+----------------
+Database version history.
+
+
+seed.ts
+----------------
+Initial database data.
+
+
+prisma.service.ts
+----------------
+Connects NestJS backend to database.
+
+
+Concept:
+Database Version Control
+
+
+==================================================
+9. IMPORTANT BACKEND CONCEPTS
+==================================================
+
+
+Controller
+----------------
+Handles API requests/responses.
+
+
+Service
+----------------
+Contains business logic.
+
+
+Module
+----------------
+Feature container.
+
+
+DTO
+----------------
+Validates request data.
+
+
+Guard
+----------------
+Protects APIs.
+
+
+Middleware
+----------------
+Runs before controller.
+
+
+Pipe
+----------------
+Transforms & validates data.
+
+
+Decorator
+----------------
+Adds special behavior.
+
+
+Interceptor
+----------------
+Processes request/response.
+
+
+Filter
+----------------
+Handles errors globally.
+
+
+Prisma
+----------------
+ORM for database communication.
+
+
+Migration
+----------------
+Database change history.
+
+
+JWT
+----------------
+Authentication token system.
+
+
+==================================================
+10. REQUEST FLOW
+==================================================
+
+Frontend Request
+        ↓
+Middleware
+        ↓
+Guard
+        ↓
+Pipe
+        ↓
+Controller
+        ↓
+Service
+        ↓
+Prisma
+        ↓
+Database
+
+
+==================================================
+11. CURRENT PROJECT STATUS
+==================================================
+
+✅ Frontend untouched
+✅ Backend architecture created
+✅ Enterprise folder structure completed
+✅ Security architecture prepared
+✅ Database foundation prepared
+✅ Shared reusable structure created
+✅ Environment configuration prepared
+
+
+==================================================
+12. FUTURE STEPS
+==================================================
+
+Next upcoming work:
+
+- Prisma schema writing
+- Database connection
+- JWT implementation
+- API development
+- DTO validation
+- CRUD APIs
+- AWS deployment
+- CI/CD setup
+- Docker setup
+- Production database
+- Frontend-backend integration

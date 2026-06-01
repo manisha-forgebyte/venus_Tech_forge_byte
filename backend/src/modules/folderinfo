@@ -1,0 +1,21 @@
+4. modules/
+
+MOST IMPORTANT folder.
+
+Every feature goes here.
+
+Example:
+
+auth
+users
+companies
+payments
+products
+
+Meaning:
+
+module = one business feature
+
+NestJS is module-based architecture.
+
+Very important enterprise concept.

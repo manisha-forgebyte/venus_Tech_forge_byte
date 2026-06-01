@@ -1,0 +1,91 @@
+@mixin flex-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@mixin transition($args...) {
+    transition: $args;
+}
+
+
+@mixin card-style {
+    background: $white;
+    border-radius: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+}
+
+
+@mixin content-card {
+    background: $white;
+    border-radius: 24px;
+    padding: 30px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+}
+
+
+@mixin table-header {
+    background: $primary-navy;
+    color: $white;
+    padding: 14px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+}
+
+
+@mixin table-row {
+    border-bottom: 1px solid #E2E8F0;
+    transition: background 0.1s;
+
+    &:hover {
+        background: #F7FAFC;
+    }
+
+    td {
+        padding: 12px 16px;
+        font-size: 13px;
+        color: $text-dark;
+        vertical-align: middle;
+    }
+}
+
+
+@mixin btn-primary {
+    border: none;
+    border-radius: 25px;
+    color: $white;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+}
+
+
+@mixin action-icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+
+    &:hover {
+        background: rgba(0, 0, 0, 0.05);
+    }
+
+    svg {
+        width: 16px;
+        height: 16px;
+    }
+}

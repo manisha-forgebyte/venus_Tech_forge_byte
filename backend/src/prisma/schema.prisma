@@ -1,0 +1,352 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  uid       Int      @unique @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("Company User")
+  aid       Int      @default(1)
+  cid       Int      @default(1)
+  gid       Int      @default(3)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  gid       Int      @unique
+  name      String
+  rolename  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id          String   @id @default(cuid())
+  aid         Int      @unique @default(autoincrement())
+  name        String
+  accName     String?
+  accountName String?
+  url         String?
+  isActive    Boolean  @default(true)
+  data        Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AccountGroup {
+  id        String   @id @default(cuid())
+  agid      Int      @unique @default(autoincrement())
+  aid       Int      @default(1)
+  gid       Int      @default(1)
+  name      String
+  groupname String?
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  cid         Int      @unique @default(autoincrement())
+  aid         Int      @default(1)
+  agid        Int      @default(1)
+  companyId   String?
+  companyName String
+  fullName    String?
+  tradingName String?
+  isActive    Boolean  @default(true)
+  data        Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CompanyFilingFlags {
+  id              String   @id @default(cuid())
+  cid             Int      @unique
+  includeAssets   Boolean  @default(true)
+  includeEntities Boolean  @default(true)
+  includeFilings  Boolean  @default(true)
+  data            Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model CommonLookup {
+  id        String   @id @default(cuid())
+  table     String
+  value     String
+  text      String
+  aid       Int?
+  cid       Int?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([table])
+  @@index([aid])
+  @@index([cid])
+}
+
+model Asset {
+  id        String   @id @default(cuid())
+  assetid   Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  name      String?
+  assetName String?
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model Entity {
+  id         String   @id @default(cuid())
+  entityid   Int      @unique @default(autoincrement())
+  cid        Int
+  gid        Int      @default(1)
+  name       String?
+  entityName String?
+  isActive   Boolean  @default(true)
+  data       Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model CategoryStatus {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model EntityToEntity {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model EntityToGeneratorAsset {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model EntityToPpa {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model EntityToVerticalAsset {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model IndicativeMarketScreenStudy {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model ImssParameter {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  imssId    Int
+  cid       Int
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+  @@index([imssId])
+}
+
+model IndicativePowerSupplyStudy {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model IpssParameter {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  ipssId    Int
+  cid       Int
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+  @@index([ipssId])
+}
+
+model MbrAuthorization {
+  id        String   @id @default(cuid())
+  mbrauthid Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model Filing {
+  id        String   @id @default(cuid())
+  fid       Int      @unique @default(autoincrement())
+  cid       Int      @default(1)
+  uid       Int?
+  status    String?
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model Mitigation {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model SelfLimitation {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model OperatingReserve {
+  id        String   @id @default(cuid())
+  pid       Int      @unique @default(autoincrement())
+  cid       Int
+  gid       Int      @default(1)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+}
+
+model Invoice {
+  id        String   @id @default(cuid())
+  invoiceId Int      @unique @default(autoincrement())
+  cid       Int
+  aid       Int      @default(1)
+  agid      Int?
+  isSent    Boolean  @default(false)
+  isBilled  Boolean  @default(false)
+  isPaid    Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+  @@index([aid])
+}
+
+model MonthlyInvoice {
+  id        String   @id @default(cuid())
+  invoiceId Int      @unique @default(autoincrement())
+  cid       Int
+  aid       Int      @default(1)
+  agid      Int?
+  isSent    Boolean  @default(false)
+  isBilled  Boolean  @default(false)
+  isPaid    Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cid])
+  @@index([aid])
+}

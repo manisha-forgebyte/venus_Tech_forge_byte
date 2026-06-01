@@ -1,0 +1,15 @@
+1. common/
+
+Used for reusable backend logic.
+
+Example:
+
+auth guards
+interceptors
+filters
+utility functions
+middleware
+
+Meaning:
+
+common = reusable things used everywhere

@@ -1,0 +1,47 @@
+@import '../styles/variables';
+
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main {
+  flex: 1;
+}
+
+.app-footer {
+  text-align: center;
+  padding: 24px;
+  color: #a3aed0;
+  font-size: 13px;
+  border-top: 1px solid rgba(224, 229, 242, 0.5);
+
+  a {
+    color: #47548c;
+    text-decoration: none;
+    font-weight: 500;
+  }
+}
+
+.fab-help {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #2b3674;
+  color: white;
+  border: none;
+  font-size: 20px;
+  font-weight: 700;
+  box-shadow: 0 10px 20px rgba(43, 54, 116, 0.3);
+  cursor: pointer;
+  z-index: 1000;
+  transition: transform 0.2s ease;
+
+  &:hover {
+    transform: scale(1.1);
+  }
+}
