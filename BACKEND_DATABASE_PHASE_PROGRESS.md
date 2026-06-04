@@ -135,11 +135,9 @@ Current backend state:
 
 ```txt
 AuthModule has working login/register/refresh/logout logic.
-CompatibilityModule catches /api/{area}/{action} frontend-style routes.
-Only User exists as a real Prisma database model.
-Users are partly real through CompatibilityController + Prisma User table.
-Account/company/common responses are mostly demo placeholders.
-Assets/entities/filings/market/reserve/invoice modules exist but files are empty.
+Users, companies, assets, entities, filings, market, and reserve now have real Prisma-backed services and controllers.
+CompatibilityModule still catches /api/{area}/{action} frontend-style routes for legacy compatibility.
+The compatibility layer still owns the remaining legacy routes for account, common, invoice, and a few special-case actions.
 ```
 
 Recommended backend structure:
@@ -264,6 +262,16 @@ Phase 2 expected result:
 
 ```txt
 Achieved
+```
+
+Current backend/database implementation status after source review:
+
+```txt
+Core auth, user, company, asset, entity, filing, market, and reserve modules are implemented with Prisma-backed persistence.
+CompatibilityController still acts as the legacy adapter for many frontend-style routes.
+CopyEntityData now performs a real database copy across the main company-scoped tables.
+FERCAPI now returns live database-backed snapshots instead of an empty placeholder response.
+The remaining work is route cleanup and completing the smaller legacy modules without changing frontend URLs.
 ```
 
 ## Phase 3: Database Schema Design
@@ -445,7 +453,7 @@ Achieved
 Status:
 
 ```txt
-Next
+Partially complete
 ```
 
 Goal:
@@ -463,6 +471,14 @@ Create/update/delete/deactivate users work from database.
 Inactive user restore/delete flows work.
 Role type APIs return database-backed roles.
 Backend build and e2e checks pass.
+```
+
+Current source review:
+
+```txt
+Auth and user CRUD are implemented against Prisma.
+Role types are read from the database when available.
+Legacy compatibility routes are still being maintained so the frontend keeps working without URL changes.
 ```
 
 Pre-Phase-4 fix:
@@ -497,4 +513,165 @@ IDE/type validation result:
 
 ```txt
 No TypeScript errors for backend/test/app.e2e-spec.ts.
+```
+
+## Database Status
+
+```txt
+The Prisma schema is already defined and validated.
+The PostgreSQL database has already been synced with Prisma.
+Seed data has already been loaded.
+The current database is the source of truth for auth, users, companies, assets, entities, filings, market, reserve, and lookup data.
+```
+
+```txt
+Database progress is roughly 80% to 85%.
+The schema and base data are done; the remaining work is mostly legacy-route cleanup and a few compatibility-heavy areas.
+```
+
+### Database Tables In Use
+
+```txt
+User
+Role
+Account
+AccountGroup
+Company
+CompanyFilingFlags
+CommonLookup
+Asset
+Entity
+CategoryStatus
+EntityToEntity
+EntityToGeneratorAsset
+EntityToPpa
+EntityToVerticalAsset
+IndicativeMarketScreenStudy
+ImssParameter
+IndicativePowerSupplyStudy
+IpssParameter
+MbrAuthorization
+Filing
+Mitigation
+SelfLimitation
+OperatingReserve
+Invoice
+MonthlyInvoice
+```
+
+### Database Work Completed
+
+```txt
+Prisma schema validated successfully.
+Database schema pushed successfully.
+Prisma Client generated successfully.
+Seed data inserted successfully.
+Build and e2e checks passed after the database work.
+```
+
+### Database Work Remaining
+
+```txt
+Refine the database-backed handling for the compatibility-heavy legacy areas.
+Add any missing tables only if a real route needs them.
+Keep frontend API names unchanged while improving backend persistence.
+```
+
+## Backend Module Summary
+
+| Module | Database | Status | Notes |
+|---|---|---|---|
+| Auth | `User` | Completed | Login, register, refresh, and logout are implemented. |
+| Users | `User`, `Role` | Completed | Database-backed CRUD and inactive-user handling exist. |
+| Companies | `Company`, `CompanyFilingFlags`, `Account`, `AccountGroup` | Completed | Real Prisma-backed CRUD exists. |
+| Assets | `Asset` | Completed | Real Prisma-backed CRUD exists. |
+| Entities | `Entity` | Completed | Real Prisma-backed CRUD exists. |
+| Filings | `Filing` | Completed | Real Prisma-backed CRUD exists. |
+| Market | `IndicativeMarketScreenStudy`, `IndicativePowerSupplyStudy`, `Mitigation`, `SelfLimitation`, `OperatingReserve` | Completed | Market and reserve-related study routes are implemented. |
+| Reserve | `OperatingReserve` | Completed | Dedicated reserve module is implemented. |
+| Compatibility adapter | Multiple tables | Partially complete | Keeps legacy `/api/{Module}/{Action}` routes working. |
+| Account | `Account`, `AccountGroup` | Partially complete | Still mostly handled inside `CompatibilityController`. |
+| Common | `Role`, `AccountGroup`, `CommonLookup` | Partially complete | Lookup and dropdown responses are still compatibility-driven. |
+| Invoice | `Invoice`, `MonthlyInvoice` | Partially complete | Legacy invoice flows still live in `CompatibilityController`. |
+| FERCAPI | Live database snapshot | Partially complete | Support endpoints now return real database-backed snapshots. |
+| MBRAuth | `MbrAuthorization` | Partially complete | Present in schema and compatibility routing, but not split into its own module yet. |
+| CatStatus | `CategoryStatus` | Partially complete | Present in schema and compatibility routing. |
+| EtoE | `EntityToEntity` | Partially complete | Present in schema and compatibility routing. |
+| EtoGen | `EntityToGeneratorAsset` | Partially complete | Present in schema and compatibility routing. |
+| EtoPPAs | `EntityToPpa` | Partially complete | Present in schema and compatibility routing. |
+| EtoVA | `EntityToVerticalAsset` | Partially complete | Present in schema and compatibility routing. |
+
+## Estimated Completion
+
+```txt
+These are practical source-based estimates, not formal measurements.
+They reflect how much of each module is real Prisma-backed implementation versus legacy compatibility fallback.
+```
+
+| Area | Estimated Complete |
+|---|---:|
+| Auth | 95% |
+| Users | 90% |
+| Companies | 90% |
+| Assets | 90% |
+| Entities | 90% |
+| Filings | 85% |
+| Market | 85% |
+| Reserve | 80% |
+| Compatibility adapter | 60% |
+| Account | 40% |
+| Common | 35% |
+| Invoice | 35% |
+| FERCAPI | 25% |
+| MBRAuth | 35% |
+| CatStatus | 30% |
+| EtoE | 30% |
+| EtoGen | 30% |
+| EtoPPAs | 30% |
+| EtoVA | 30% |
+
+```txt
+Overall backend + database completion is roughly 75% to 80% based on the current source.
+The main backend foundation is in place; the remaining work is mostly legacy-route cleanup and the smaller compatibility-heavy modules.
+```
+
+## Legacy Routes Still In Play
+
+```txt
+These are the main legacy action names still being handled by CompatibilityController.
+They are kept intentionally so the frontend can continue using /api/{Module}/{Action} without URL changes.
+```
+
+| Area | Current legacy actions handled |
+|---|---|
+| Login | `getlogin`, `refreshtoken`, `logout` |
+| Common | `updateincinfilingflag`, `updateincinfilingflagall`, `getentitydataforxml`, `getentitydataforpdfbycid`, `importentitiesfromexcel`, `importassetsfromexcel`, `copyentitydata` |
+| User | `deletebyid`, `getlistbycid`, `createuser`, `updateuser`, `updatemyprofile`, `updateuseractivatebycid`, `deleteuserinactivesbycid`, `roletypes`, `inactive`, `byuid`, `getuserbyuid` |
+| Account | `getaccoungroupsbyaid`, `getaccountgroupsbyaid`, `getaccountandcompany`, `getaccountandcompanybycid`, `getadminaccountcompany`, `admingetaccounts`, `getaccountdetailsbycid`, `getaccountdetailsbyaid`, `insupdgroups`, `createaccount`, `updateaccount`, `updateaccountdetails`, `admindeleteaccount`, `deleteaccoungroupsbyagid`, `deleteaccountgroupsbyagid` |
+| Company | `getcompanylistbyaid`, `admingetcompaniesbyaid`, `getcompanylistbycid`, `getcompanylistbyuidagid`, `getcompanydetails`, `getfilingflagsbycid`, `createcompany`, `updatecompany`, `updatecompanydetails`, `updatefilingflags`, `admindeletecompany`, `copyentitydata` |
+| Filing | `getfilingslist`, `getfilingbyid`, `getlistbycid`, `insupdfiling`, `createfiling`, `updatefiling` |
+| Invoice | `getinvoicedatabycid`, `admingetinvoices`, `getinvoicebyid`, `getadmingetinvoicemonthlycountbycid`, `getadmingetinvoicemonthlybyid`, `getfilingsforinvoicebycid`, `getfilingsforinvoicesbycid`, `forwardtoexternal*`, `createinvoice`, `updateinvoice`, `createmonthlyinvoice`, `updatemonthlyinvoice`, `updatesentinvoice`, `updatefercstatus`, `adminupdateinvoicesisbilledbyids`, `adminchangeaccountforven` |
+| IMSS | `getlistbycid`, `getrecordbyid`, `getbyid`, `getparamslistbycidandid`, `insupdimssui`, `insupdimssuicopy` |
+| IPSS | `getlistbycid`, `getrecordbyid`, `getbyid`, `getparamslistbycidandid`, `insupdipssui`, `insupdipssuicopy`, `bulkimportipssstudy` |
+| MBRAuth | `getlistbycid`, `getlist`, `getrecordbyid`, `getbyid`, `getauthbyid`, `*byid`, `getparamslistbycidandid`, `insupd*`, `create*`, `update*`, `copy*` |
+| Mitigation | `getlistbycid`, `getlist`, `getrecordbyid`, `getbyid`, `getauthbyid`, `*byid`, `getparamslistbycidandid`, `insupd*`, `create*`, `update*`, `copy*` |
+| SelfLimit | `getlistbycid`, `getlist`, `getrecordbyid`, `getbyid`, `getauthbyid`, `*byid`, `getparamslistbycidandid`, `insupd*`, `create*`, `update*`, `copy*` |
+| OR | `getlistbycid`, `getlist`, `getrecordbyid`, `getbyid`, `getauthbyid`, `*byid`, `getparamslistbycidandid`, `insupd*`, `create*`, `update*`, `copy*` |
+
+## Next Build Steps
+
+```txt
+1. Move the account and common flows out of CompatibilityController into dedicated services.
+2. Add explicit Invoice and FERCAPI modules if you want those routes fully separated.
+3. Keep the legacy action names unchanged so the frontend does not need any updates.
+4. Add route-by-route tests for the high-risk legacy flows before refactoring more.
+```
+
+## Remaining Work
+
+```txt
+Split the remaining legacy routes out of CompatibilityController where it makes sense.
+Add dedicated modules/services for account, common, invoice, and any other remaining compatibility-heavy areas.
+Keep frontend URLs unchanged.
+Keep Prisma-backed database behavior as the source of truth.
 ```

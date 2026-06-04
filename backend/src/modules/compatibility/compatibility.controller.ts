@@ -120,8 +120,8 @@ export class CompatibilityController {
     if (area === 'fercapi') return this.handleFercApiPost(action, body, params, query);
 
     return {
-      success: true,
-      message: 'Saved successfully',
+      success: false,
+      message: `Unsupported action: ${params.area}/${params.action}`,
       data: body ?? {},
     };
   }
@@ -133,19 +133,11 @@ export class CompatibilityController {
     const action = this.normalize(params.action);
 
     if (area === 'common' && action === 'updateincinfilingflag') {
-      return {
-        success: true,
-        message: 'Filing flag updated successfully',
-        cid: this.numberValue(params.p1 || body.cid || query.cid),
-      };
+      return this.updateIncInFilingFlag(body, params, query, false);
     }
 
     if (area === 'common' && action === 'updateincinfilingflagall') {
-      return {
-        success: true,
-        message: 'Filing flags updated successfully',
-        cid: this.numberValue(params.p1 || body.cid || query.cid),
-      };
+      return this.updateIncInFilingFlag(body, params, query, true);
     }
 
     if (area === 'user') return this.handleUserPost(action, body, params, query);
@@ -168,8 +160,8 @@ export class CompatibilityController {
     if (area === 'fercapi') return this.handleFercApiPost(action, body, params, query);
 
     return {
-      success: true,
-      message: 'Updated successfully',
+      success: false,
+      message: `Unsupported action: ${params.area}/${params.action}`,
       data: body ?? {},
     };
   }
@@ -236,6 +228,16 @@ export class CompatibilityController {
 
     if (this.isXmlAction(action)) return this.buildXmlPayload(this.numberValue(params.p1 || query.cid));
 
+    if (action === 'getdropdownlist' || action === 'getdropdownlistwhere') {
+      return this.getDropdownList(
+        this.stringValue(query.table || ''),
+        this.stringValue(query.value || ''),
+        this.stringValue(query.text || ''),
+        this.stringValue(query.where || ''),
+        query,
+      );
+    }
+
     const table = this.normalize(query.table || '');
     if (table.includes('role')) return this.getRoleTypes();
     if (table.includes('accountgroup')) {
@@ -277,7 +279,195 @@ export class CompatibilityController {
       return this.copyEntityData(body);
     }
 
-    return { success: true, message: 'Saved successfully', data: body ?? {} };
+    return { success: false, message: `Unsupported common action: ${action}`, data: body ?? {} };
+  }
+
+  private async getDropdownList(table: string, valueField: string, textField: string, where: string, query: AnyRecord) {
+    const tableName = this.normalize(table);
+    const resolvedValueField = valueField || 'value';
+    const resolvedTextField = textField || 'text';
+    const isActiveFilter = this.extractBooleanWhere(where, 'isActive');
+    const aidFilter = this.extractNumberWhere(where, 'aid', query.aid);
+    const cidFilter = this.extractNumberWhere(where, 'cid', query.cid);
+
+    if (!tableName) return [];
+
+    if (tableName.includes('role')) {
+      const roles = await this.prisma.role.findMany({
+        where: { ...(isActiveFilter === undefined ? { isActive: true } : { isActive: isActiveFilter }) },
+        orderBy: { gid: 'asc' },
+      });
+      return roles.map((role) => this.projectDropdownRecord(role, 'role', resolvedValueField, resolvedTextField));
+    }
+
+    if (tableName.includes('accountgroup')) {
+      const groups = await this.prisma.accountGroup.findMany({
+        where: {
+          ...(aidFilter ? { aid: aidFilter } : {}),
+          ...(isActiveFilter === undefined ? { isActive: true } : { isActive: isActiveFilter }),
+        },
+        orderBy: { agid: 'asc' },
+      });
+      return groups.map((group) => this.projectDropdownRecord(group, 'accountGroup', resolvedValueField, resolvedTextField));
+    }
+
+    if (tableName.includes('account')) {
+      const accounts = await this.prisma.account.findMany({
+        where: { ...(isActiveFilter === undefined ? { isActive: true } : { isActive: isActiveFilter }) },
+        orderBy: { aid: 'asc' },
+      });
+      return accounts.map((account) => this.projectDropdownRecord(account, 'account', resolvedValueField, resolvedTextField));
+    }
+
+    if (tableName.includes('company')) {
+      const companies = await this.prisma.company.findMany({
+        where: {
+          ...(aidFilter ? { aid: aidFilter } : {}),
+          ...(cidFilter ? { cid: cidFilter } : {}),
+          ...(isActiveFilter === undefined ? { isActive: true } : { isActive: isActiveFilter }),
+        },
+        orderBy: { cid: 'asc' },
+      });
+      return companies.map((company) => this.projectDropdownRecord(company, 'company', resolvedValueField, resolvedTextField));
+    }
+
+    if (tableName.includes('commonlookup')) {
+      const lookupTable = this.stringValue(query.lookupTable || query.table || table);
+      const lookups = await this.prisma.commonLookup.findMany({
+        where: {
+          ...(lookupTable ? { table: lookupTable } : {}),
+          ...(aidFilter ? { aid: aidFilter } : {}),
+          ...(cidFilter ? { cid: cidFilter } : {}),
+          ...(isActiveFilter === undefined ? { isActive: true } : { isActive: isActiveFilter }),
+        },
+        orderBy: { sortOrder: 'asc' },
+      });
+      return lookups.map((lookup) => this.projectDropdownRecord(lookup, 'commonLookup', resolvedValueField, resolvedTextField));
+    }
+
+    const modelName = this.dropdownModelForTable(tableName);
+    if (!modelName) return [];
+
+    const client = (this.prisma as AnyRecord)[modelName];
+    if (!client?.findMany) return [];
+
+    const records = await client.findMany({
+      where: this.buildDropdownWhere(modelName, { aid: aidFilter, cid: cidFilter, isActive: isActiveFilter }),
+      orderBy: this.orderByForModel(modelName),
+    });
+    return records.map((record: AnyRecord) => this.projectDropdownRecord(record, modelName, resolvedValueField, resolvedTextField));
+  }
+
+  private dropdownModelForTable(tableName: string) {
+    switch (tableName) {
+      case 'asset':
+      case 'assets':
+        return 'asset';
+      case 'entity':
+      case 'entities':
+        return 'entity';
+      case 'filing':
+      case 'filings':
+        return 'filing';
+      case 'invoice':
+        return 'invoice';
+      case 'monthlyinvoice':
+        return 'monthlyInvoice';
+      case 'categorystatus':
+        return 'categoryStatus';
+      case 'entitytoentity':
+        return 'entityToEntity';
+      case 'entitytogeneratorasset':
+        return 'entityToGeneratorAsset';
+      case 'entitytoppa':
+        return 'entityToPpa';
+      case 'entitytoverticalasset':
+        return 'entityToVerticalAsset';
+      case 'indicativemarketscreenstudy':
+        return 'indicativeMarketScreenStudy';
+      case 'imssparameter':
+        return 'imssParameter';
+      case 'indicativepowersupplystudy':
+        return 'indicativePowerSupplyStudy';
+      case 'ipssparameter':
+        return 'ipssParameter';
+      case 'mbrauthorization':
+        return 'mbrAuthorization';
+      case 'mitigation':
+      case 'mitigations':
+        return 'mitigation';
+      case 'selflimitation':
+      case 'selflimit':
+        return 'selfLimitation';
+      case 'operatingreserve':
+      case 'or':
+        return 'operatingReserve';
+      default:
+        return '';
+    }
+  }
+
+  private buildDropdownWhere(modelName: string, filter: AnyRecord) {
+    const where: AnyRecord = {};
+    if (typeof filter.aid === 'number' && filter.aid > 0) where.aid = filter.aid;
+    if (typeof filter.cid === 'number' && filter.cid > 0) where.cid = filter.cid;
+    if (typeof filter.isActive === 'boolean') where.isActive = filter.isActive;
+    if (modelName === 'imssParameter' && typeof filter.cid === 'number' && filter.cid > 0) where.cid = filter.cid;
+    if (modelName === 'ipssParameter' && typeof filter.cid === 'number' && filter.cid > 0) where.cid = filter.cid;
+    return where;
+  }
+
+  private extractNumberWhere(where: string, key: string, fallback?: unknown) {
+    const parsed = this.extractWhereValue(where, key);
+    return parsed === null ? this.numberValue(fallback) || undefined : this.numberValue(parsed);
+  }
+
+  private extractBooleanWhere(where: string, key: string) {
+    const parsed = this.extractWhereValue(where, key);
+    if (parsed === null) return undefined;
+    return this.booleanValue(parsed, undefined);
+  }
+
+  private extractWhereValue(where: string, key: string) {
+    const normalized = (where || '').replace(/^where\s+/i, '').trim();
+    if (!normalized) return null;
+    const matches = normalized.match(new RegExp(`${key}\\s*=\\s*([^\\s&]+)`, 'i'));
+    if (!matches?.[1]) return null;
+    return decodeURIComponent(matches[1].replace(/^['"]|['"]$/g, ''));
+  }
+
+  private projectDropdownRecord(record: AnyRecord, modelName: string, valueField: string, textField: string) {
+    const fallbackValue =
+      record?.[valueField] ??
+      record?.[this.idFieldForModel(modelName)] ??
+      record?.value ??
+      record?.id ??
+      record?.gid ??
+      record?.aid ??
+      record?.cid ??
+      record?.pid ??
+      record?.invoiceId ??
+      null;
+    const fallbackText =
+      record?.[textField] ??
+      record?.text ??
+      record?.name ??
+      record?.rolename ??
+      record?.groupname ??
+      record?.accountName ??
+      record?.companyName ??
+      record?.fullName ??
+      record?.entityName ??
+      record?.assetName ??
+      '';
+
+    return {
+      ...record,
+      value: fallbackValue,
+      text: fallbackText,
+      [valueField || 'value']: fallbackValue,
+      [textField || 'text']: fallbackText,
+    };
   }
 
   private async listAccountGroups(aid?: number) {
@@ -317,7 +507,7 @@ export class CompatibilityController {
     if (action === 'createaccount' || action === 'updateaccount' || action === 'updateaccountdetails') {
       return this.saveAccount(body, query);
     }
-    return { success: true, message: 'Saved successfully', data: body ?? {} };
+    return { success: false, message: `Unsupported account action: ${action}`, data: body ?? {} };
   }
 
   private async handleCompanyGet(action: string, params: AnyRecord) {
@@ -337,7 +527,7 @@ export class CompatibilityController {
     }
     if (action === 'updatefilingflags') return this.updateCompanyFilingFlags(body, query);
     if (action === 'copyentitydata') return this.copyEntityData(body);
-    return { success: true, message: 'Saved successfully', data: body ?? {} };
+    return { success: false, message: `Unsupported company action: ${action}`, data: body ?? {} };
   }
 
   private async handleUserGet(action: string, params: AnyRecord) {
@@ -356,7 +546,7 @@ export class CompatibilityController {
     if (action === 'updateuser' || action === 'updatemyprofile') return this.updateUser(body);
     if (action === 'updateuseractivatebycid') return this.updateUserActivateByCID(body);
     if (action === 'deleteuserinactivesbycid') return this.deleteUserInActivesByCID(body);
-    return { success: true, message: 'Saved successfully', data: body ?? {} };
+    return { success: false, message: `Unsupported user action: ${action}`, data: body ?? {} };
   }
 
   private async handleFilingGet(action: string, params: AnyRecord) {
@@ -370,7 +560,7 @@ export class CompatibilityController {
     if (action === 'insupdfiling' || action === 'createfiling' || action === 'updatefiling') {
       return this.saveFiling(body, params, query);
     }
-    return { success: true, message: 'Saved successfully', data: body ?? {} };
+    return { success: false, message: `Unsupported filing action: ${action}`, data: body ?? {} };
   }
 
   private async handleInvoiceGet(action: string, params: AnyRecord) {
@@ -397,10 +587,15 @@ export class CompatibilityController {
     if (action === 'createinvoice' || action === 'updateinvoice') return this.saveInvoice(body, query);
     if (action === 'createmonthlyinvoice' || action === 'updatemonthlyinvoice') return this.saveMonthlyInvoice(body, query);
     if (action === 'updatesentinvoice') return this.markInvoiceSent(this.numberValue(params.p1));
-    if (action === 'updatefercstatus') return this.updateInvoiceStatus(body);
+    if (action === 'updatefercstatus') {
+      if (body?.invoiceId || body?.InvoiceId) {
+        return this.updateInvoiceStatus(body);
+      }
+      return this.updateCompanyFercStatus(body);
+    }
     if (action === 'adminupdateinvoicesisbilledbyids') return this.updateInvoicesBilled(body);
     if (action === 'adminchangeaccountforven') return this.changeInvoiceAccount(this.numberValue(params.p1));
-    return { success: true, message: 'Saved successfully', data: body ?? {} };
+    return { success: false, message: `Unsupported invoice action: ${action}`, data: body ?? {} };
   }
 
   private async handleImssGet(action: string, params: AnyRecord) {
@@ -437,20 +632,24 @@ export class CompatibilityController {
   }
 
   private async handleFercApiGet(action: string, params: AnyRecord) {
+    const payload = await this.buildFercApiPayload(params);
     if (action === 'pulldatabysub' || action === 'pulldatabyentity') {
       return {
         success: true,
-        message: 'FERC data endpoint is available',
-        received: params,
+        message: 'FERC data loaded successfully',
+        action,
+        data: payload,
       };
     }
     return {
       success: true,
       message: 'FERC API endpoint is available',
+      data: payload,
     };
   }
 
   private async handleFercApiPost(action: string, body: AnyRecord, params: AnyRecord, query: AnyRecord) {
+    const payload = await this.buildFercApiPayload({ ...body, ...params, ...query });
     return {
       success: true,
       message: 'FERC API endpoint is available',
@@ -458,6 +657,73 @@ export class CompatibilityController {
       received: body ?? {},
       params,
       query,
+      data: payload,
+    };
+  }
+
+  private async buildFercApiPayload(source: AnyRecord) {
+    const uid = this.numberValue(source.uid || source.userId || source.user || source.p1);
+    const cid = this.numberValue(source.cid || source.companyCid || source.companyID || source.companyId || source.p2);
+    const companyId = this.stringValue(source.company_id || source.companyId || source.companyID || source.company || '');
+    const entityQuery = this.stringValue(source.entity || source.entityName || source.subFk || '');
+
+    const user = uid ? await this.prisma.user.findUnique({ where: { uid } }) : null;
+    const company = companyId
+      ? await this.prisma.company.findFirst({ where: { companyId } })
+      : cid
+        ? await this.prisma.company.findUnique({ where: { cid } })
+        : null;
+    const effectiveCid = company?.cid || cid;
+
+    const [accounts, companies, assets, entities, filings] = await Promise.all([
+      this.prisma.account.findMany({ where: { ...(user?.aid ? { aid: user.aid } : {}), isActive: true }, orderBy: { aid: 'asc' } }),
+      this.prisma.company.findMany({
+        where: {
+          ...(effectiveCid ? { cid: effectiveCid } : {}),
+          isActive: true,
+        },
+        orderBy: { cid: 'asc' },
+      }),
+      this.prisma.asset.findMany({
+        where: {
+          ...(effectiveCid ? { cid: effectiveCid } : {}),
+        },
+        orderBy: { assetid: 'asc' },
+      }),
+      this.prisma.entity.findMany({
+        where: {
+          ...(effectiveCid ? { cid: effectiveCid } : {}),
+          ...(entityQuery
+            ? {
+                OR: [
+                  { name: { contains: entityQuery, mode: 'insensitive' } },
+                  { entityName: { contains: entityQuery, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: { entityid: 'asc' },
+      }),
+      this.prisma.filing.findMany({
+        where: { ...(effectiveCid ? { cid: effectiveCid } : {}) },
+        orderBy: { fid: 'asc' },
+      }),
+    ]);
+
+    return {
+      user: user ? this.toLegacyUser(user) : null,
+      company: company ? this.toLegacyCompany(company) : null,
+      accounts: accounts.map((item) => this.toLegacyAccount(item)),
+      companies: companies.map((item) => this.toLegacyCompany(item)),
+      assets: assets.map((item) => this.toLegacyAsset(item)),
+      entities: entities.map((item) => this.toLegacyEntity(item)),
+      filings: filings.map((item) => this.decorateRecord('filing', item)),
+      source: {
+        uid,
+        cid: effectiveCid,
+        companyId,
+        entityQuery,
+      },
     };
   }
 
@@ -770,10 +1036,11 @@ export class CompatibilityController {
   }
 
   private async getAccountAndCompanyDetails(uid?: number, cid?: number) {
+    const user = uid ? await this.prisma.user.findUnique({ where: { uid } }) : null;
     const companies = await this.prisma.company.findMany({
       where: {
+        ...(user?.aid ? { aid: user.aid } : {}),
         ...(cid ? { cid } : {}),
-        ...(uid ? {} : {}),
         isActive: true,
       },
       orderBy: { cid: 'asc' },
@@ -785,19 +1052,183 @@ export class CompatibilityController {
     };
   }
 
+  private async updateCompanyFercStatus(body: AnyRecord) {
+    const cid = this.numberValue(body.cid || body.Cid || body.companyCid || body.companyID || body.companyId);
+    if (!cid) {
+      return { success: false, message: 'cid is required' };
+    }
+
+    const company = await this.prisma.company.findUnique({ where: { cid } });
+    if (!company) {
+      return { success: false, message: 'Company not found', cid };
+    }
+
+    const fercStatusData = {
+      ...this.toRecord(company.data),
+      fercStatusUpdatedAt: new Date().toISOString(),
+      fercStatusUpdatedBy: this.numberValue(body.uid || body.Uid || body.modifiedUID || body.modifiedUid || 0) || null,
+      fercStatus: 'UPDATED',
+    };
+
+    const updatedCompany = await this.prisma.company.update({
+      where: { cid },
+      data: { data: fercStatusData },
+    });
+
+    const flags = await this.prisma.companyFilingFlags.upsert({
+      where: { cid },
+      update: {
+        data: {
+          ...(this.toRecord((await this.prisma.companyFilingFlags.findUnique({ where: { cid } }))?.data)),
+          ...fercStatusData,
+        },
+      },
+      create: {
+        cid,
+        includeAssets: true,
+        includeEntities: true,
+        includeFilings: true,
+        data: fercStatusData,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'FERC status updated successfully',
+      cid,
+      company: this.toLegacyCompany(updatedCompany),
+      data: this.toLegacyCompanyFilingFlags(flags),
+      resultId: cid,
+      ResultId: cid,
+    };
+  }
+
+  private async updateIncInFilingFlag(body: AnyRecord, params: AnyRecord, query: AnyRecord, updateAll: boolean) {
+    const cid = this.numberValue(params.p1 || body.cid || body.Cid || query.cid);
+    const table = this.stringValue(body.table || body.Table || '');
+    const tableId = this.stringValue(body.tableId || body.tableID || body.TableId || body.TableID || '');
+    const value = this.booleanValue(body.value, false);
+    const whereIds = this.uidList(body.whereIds || body.whereIdsCsv || body.whereIdsList || body.id || body.ids);
+    const uid = this.numberValue(body.uid || body.Uid || body.modifiedUID || body.modifiedUid || query.uid || 0) || null;
+
+    if (!cid) {
+      return { success: false, message: 'cid is required' };
+    }
+    if (!table) {
+      return { success: false, message: 'table is required', cid };
+    }
+
+    const modelName = this.modelForFilingFlagTable(table);
+    if (!modelName) {
+      return {
+        success: false,
+        message: `Unsupported filing flag table: ${table}`,
+        cid,
+        table,
+      };
+    }
+
+    const client = (this.prisma as AnyRecord)[modelName];
+    if (!client?.findMany || !client?.update) {
+      return {
+        success: false,
+        message: `Filing flag updates are not supported for ${table}`,
+        cid,
+        table,
+      };
+    }
+
+    const idField = this.idFieldForModel(modelName);
+    const where: AnyRecord = { cid };
+    if (!updateAll && !whereIds.length) {
+      return {
+        success: false,
+        message: 'whereIds is required for single-row filing flag updates',
+        cid,
+        table,
+      };
+    }
+
+    if (!updateAll && whereIds.length) {
+      where[idField] = { in: whereIds };
+    }
+
+    const records = await client.findMany({
+      where,
+      orderBy: this.orderByForModel(modelName),
+    });
+
+    if (!records.length) {
+      return {
+        success: false,
+        message: 'No matching records found',
+        cid,
+        table,
+      };
+    }
+
+    const updatedAt = new Date().toISOString();
+    const updates: AnyRecord[] = [];
+
+    for (const record of records) {
+      const existingData = this.toRecord(record?.data);
+      const mergedData = {
+        ...existingData,
+        IncInFiling: value,
+        incInFiling: value,
+        filingFlagTable: table,
+        filingFlagTableId: tableId || idField,
+        filingFlagWhereIds: updateAll ? [] : whereIds,
+        filingFlagUpdatedAt: updatedAt,
+        filingFlagUpdatedBy: uid,
+      };
+
+      const idValue = this.numberValue(record?.[idField] || record?.id);
+      const updated = await client.update({
+        where: { [idField]: idValue },
+        data: { data: mergedData },
+      });
+      updates.push(updated);
+    }
+
+    await this.persistCompanyFilingFlagState(cid, {
+      table,
+      tableId: tableId || idField,
+      value,
+      whereIds: updateAll ? records.map((record: AnyRecord) => this.numberValue(record?.[idField])).filter((item: number) => item > 0) : whereIds,
+      updateAll,
+      updatedAt,
+      updatedBy: uid,
+      count: updates.length,
+    });
+
+    return {
+      success: true,
+      message: updateAll ? 'Filing flags updated successfully' : 'Filing flag updated successfully',
+      cid,
+      table,
+      tableId: tableId || idField,
+      value,
+      count: updates.length,
+      resultId: updates.length,
+      ResultId: updates.length,
+    };
+  }
+
   private async saveAccountGroup(body: AnyRecord) {
     const agid = this.numberValue(body.agid || body.AGID || body.id);
     const aid = this.numberValue(body.aid || body.AID || 1);
     const gid = this.numberValue(body.gid || body.GID || 1);
     const groupname = this.stringValue(body.groupname || body.name || 'Default Group') || 'Default Group';
+    const persistedData = this.cleanDataForPersist(body);
     const record = agid
       ? await this.prisma.accountGroup.upsert({
           where: { agid },
-          update: { aid, gid, name: groupname, groupname, isActive: this.booleanValue(body.isActive, true) },
-          create: { agid, aid, gid, name: groupname, groupname, isActive: this.booleanValue(body.isActive, true) },
+          update: { aid, gid, name: groupname, groupname, isActive: this.booleanValue(body.isActive, true), data: persistedData },
+          create: { agid, aid, gid, name: groupname, groupname, isActive: this.booleanValue(body.isActive, true), data: persistedData },
         })
       : await this.prisma.accountGroup.create({
-          data: { aid, gid, name: groupname, groupname, isActive: this.booleanValue(body.isActive, true) },
+          data: { aid, gid, name: groupname, groupname, isActive: this.booleanValue(body.isActive, true), data: persistedData },
         });
     return {
       success: true,
@@ -829,6 +1260,7 @@ export class CompatibilityController {
             accName: this.stringValue(body.accName || body.accountName || name) || name,
             accountName: this.stringValue(body.accountName || body.accName || name) || name,
             url: this.stringValue(body.url || body.Url || '') || null,
+            isActive: this.booleanValue(body.isActive, true),
             data: persistedData,
           },
         })
@@ -838,6 +1270,7 @@ export class CompatibilityController {
             accName: this.stringValue(body.accName || body.accountName || name) || name,
             accountName: this.stringValue(body.accountName || body.accName || name) || name,
             url: this.stringValue(body.url || body.Url || '') || null,
+            isActive: this.booleanValue(body.isActive, true),
             data: persistedData,
           },
         });
@@ -926,6 +1359,7 @@ export class CompatibilityController {
             companyName,
             fullName: this.stringValue(body.fullName || body.full_name || companyName) || companyName,
             tradingName: this.stringValue(body.tradingName || body.trading_name || companyName) || companyName,
+            isActive: this.booleanValue(body.isActive, true),
             data: persistedData,
           },
         })
@@ -937,6 +1371,7 @@ export class CompatibilityController {
             companyName,
             fullName: this.stringValue(body.fullName || body.full_name || companyName) || companyName,
             tradingName: this.stringValue(body.tradingName || body.trading_name || companyName) || companyName,
+            isActive: this.booleanValue(body.isActive, true),
             data: persistedData,
           },
         });
@@ -952,20 +1387,53 @@ export class CompatibilityController {
 
   private async updateCompanyFilingFlags(body: AnyRecord, query: AnyRecord) {
     const cid = this.numberValue(body.cid || body.Cid || query.cid);
+    const persistedData = this.cleanDataForPersist(body);
+    const existing = await this.prisma.companyFilingFlags.findUnique({ where: { cid } });
+    const mergedData = {
+      ...this.toRecord(existing?.data),
+      ...persistedData,
+      incAuth: this.booleanValue(body.incAuth ?? body.IncAuth, false),
+      incCS: this.booleanValue(body.incCS ?? body.IncCS, false),
+      incMit: this.booleanValue(body.incMit ?? body.IncMit, false),
+      incOR: this.booleanValue(body.incOR ?? body.IncOR, false),
+      incSL: this.booleanValue(body.incSL ?? body.IncSL, false),
+      incEtoE: this.booleanValue(body.incEtoE ?? body.IncEtoE, false),
+      incEtoGen: this.booleanValue(body.incEtoGen ?? body.IncEtoGen, false),
+      incEtoPPA: this.booleanValue(body.incEtoPPA ?? body.IncEtoPPA, false),
+      incEtoVA: this.booleanValue(body.incEtoVA ?? body.IncEtoVA, false),
+      incIPSS: this.booleanValue(body.incIPSS ?? body.IncIPSS, false),
+      incIMSS: this.booleanValue(body.incIMSS ?? body.IncIMSS, false),
+      sandboxTest: this.booleanValue(body.sandboxTest ?? body.SandboxTest, false),
+      updatedAt: new Date().toISOString(),
+    };
     const record = await this.prisma.companyFilingFlags.upsert({
       where: { cid },
       update: {
-        includeAssets: this.booleanValue(body.includeAssets, true),
-        includeEntities: this.booleanValue(body.includeEntities, true),
-        includeFilings: this.booleanValue(body.includeFilings, true),
+        includeAssets: this.booleanValue(body.includeAssets ?? body.IncludeAssets, true),
+        includeEntities: this.booleanValue(body.includeEntities ?? body.IncludeEntities, true),
+        includeFilings: this.booleanValue(body.includeFilings ?? body.IncludeFilings, true),
+        data: mergedData,
       },
       create: {
         cid,
-        includeAssets: this.booleanValue(body.includeAssets, true),
-        includeEntities: this.booleanValue(body.includeEntities, true),
-        includeFilings: this.booleanValue(body.includeFilings, true),
+        includeAssets: this.booleanValue(body.includeAssets ?? body.IncludeAssets, true),
+        includeEntities: this.booleanValue(body.includeEntities ?? body.IncludeEntities, true),
+        includeFilings: this.booleanValue(body.includeFilings ?? body.IncludeFilings, true),
+        data: mergedData,
       },
     });
+
+    await this.prisma.company.updateMany({
+      where: { cid },
+      data: {
+        data: {
+          ...(this.toRecord((await this.prisma.company.findUnique({ where: { cid } }))?.data)),
+          filingFlags: mergedData,
+          filingFlagsUpdatedAt: mergedData.updatedAt,
+        },
+      },
+    });
+
     return {
       success: true,
       message: 'Filing flags updated successfully',
@@ -977,6 +1445,7 @@ export class CompatibilityController {
 
   private async saveFiling(body: AnyRecord, params: AnyRecord, query: AnyRecord) {
     const fid = this.numberValue(body.fid || body.FID || query.fid || params.p1);
+    const persistedData = this.cleanDataForPersist(body);
     const record = fid
       ? await this.prisma.filing.upsert({
           where: { fid },
@@ -985,12 +1454,15 @@ export class CompatibilityController {
             uid: this.optionalNumber(body.uid || body.Uid || body.userId),
             status: this.stringValue(body.status || body.Status || 'Draft') || 'Draft',
             isActive: this.booleanValue(body.isActive, true),
+            data: persistedData,
           },
           create: {
             fid,
             cid: this.numberValue(body.cid || body.Cid || 1),
             uid: this.optionalNumber(body.uid || body.Uid || body.userId),
             status: this.stringValue(body.status || body.Status || 'Draft') || 'Draft',
+            isActive: this.booleanValue(body.isActive, true),
+            data: persistedData,
           },
         })
       : await this.prisma.filing.create({
@@ -998,6 +1470,8 @@ export class CompatibilityController {
             cid: this.numberValue(body.cid || body.Cid || 1),
             uid: this.optionalNumber(body.uid || body.Uid || body.userId),
             status: this.stringValue(body.status || body.Status || 'Draft') || 'Draft',
+            isActive: this.booleanValue(body.isActive, true),
+            data: persistedData,
           },
         });
     return {
@@ -1048,6 +1522,7 @@ export class CompatibilityController {
             isSent: this.booleanValue(body.isSent, false),
             isBilled: this.booleanValue(body.isBilled, false),
             isPaid: this.booleanValue(body.isPaid, false),
+            isActive: this.booleanValue(body.isActive, true),
             data: persistedData,
           },
         })
@@ -1059,6 +1534,7 @@ export class CompatibilityController {
             isSent: this.booleanValue(body.isSent, false),
             isBilled: this.booleanValue(body.isBilled, false),
             isPaid: this.booleanValue(body.isPaid, false),
+            isActive: this.booleanValue(body.isActive, true),
             data: persistedData,
           },
         });
@@ -1095,6 +1571,7 @@ export class CompatibilityController {
             isSent: this.booleanValue(body.isSent, false),
             isBilled: this.booleanValue(body.isBilled, false),
             isPaid: this.booleanValue(body.isPaid, false),
+            isActive: this.booleanValue(body.isActive, true),
             data: persistedData,
           },
         })
@@ -1106,6 +1583,7 @@ export class CompatibilityController {
             isSent: this.booleanValue(body.isSent, false),
             isBilled: this.booleanValue(body.isBilled, false),
             isPaid: this.booleanValue(body.isPaid, false),
+            isActive: this.booleanValue(body.isActive, true),
             data: persistedData,
           },
         });
@@ -1485,13 +1963,117 @@ export class CompatibilityController {
   }
 
   private async copyEntityData(body: AnyRecord) {
+    const sourceCid = this.numberValue(body.cid || body.copyFromCID || body.copyFromCid || body.sourceCid || body.sourceCID || 0);
+    const targetCid = this.numberValue(body.copyToCID || body.targetCid || body.targetCID || body.toCid || 0);
+
+    if (!sourceCid || !targetCid) {
+      return {
+        success: false,
+        message: 'Source CID and target CID are required',
+        sourceCid,
+        targetCid,
+      };
+    }
+
+    if (sourceCid === targetCid) {
+      return {
+        success: false,
+        message: 'Source CID and target CID must be different',
+        sourceCid,
+        targetCid,
+      };
+    }
+
+    const result = {
+      company: 0,
+      companyFilingFlags: 0,
+      assets: 0,
+      entities: 0,
+      filings: 0,
+      categoryStatus: 0,
+      entityToEntity: 0,
+      entityToGeneratorAsset: 0,
+      entityToPpa: 0,
+      entityToVerticalAsset: 0,
+      indicativeMarketScreenStudy: 0,
+      indicativePowerSupplyStudy: 0,
+      mbrAuthorization: 0,
+      mitigation: 0,
+      selfLimitation: 0,
+      operatingReserve: 0,
+    };
+
+    const sourceCompany = await this.prisma.company.findUnique({ where: { cid: sourceCid } });
+    if (sourceCompany) {
+      await this.saveCompany({ ...sourceCompany, cid: targetCid, id: undefined }, { p1: targetCid }, { cid: targetCid });
+      result.company = 1;
+    }
+
+    const sourceFlags = await this.prisma.companyFilingFlags.findUnique({ where: { cid: sourceCid } });
+    if (sourceFlags) {
+      await this.updateCompanyFilingFlags(
+        {
+          cid: targetCid,
+          includeAssets: sourceFlags.includeAssets,
+          includeEntities: sourceFlags.includeEntities,
+          includeFilings: sourceFlags.includeFilings,
+          data: sourceFlags.data,
+        },
+        { cid: targetCid },
+      );
+      result.companyFilingFlags = 1;
+    }
+
+    const copyableModels: Array<[string, keyof typeof result]> = [
+      ['asset', 'assets'],
+      ['entity', 'entities'],
+      ['filing', 'filings'],
+      ['categoryStatus', 'categoryStatus'],
+      ['entityToEntity', 'entityToEntity'],
+      ['entityToGeneratorAsset', 'entityToGeneratorAsset'],
+      ['entityToPpa', 'entityToPpa'],
+      ['entityToVerticalAsset', 'entityToVerticalAsset'],
+      ['indicativeMarketScreenStudy', 'indicativeMarketScreenStudy'],
+      ['indicativePowerSupplyStudy', 'indicativePowerSupplyStudy'],
+      ['mbrAuthorization', 'mbrAuthorization'],
+      ['mitigation', 'mitigation'],
+      ['selfLimitation', 'selfLimitation'],
+      ['operatingReserve', 'operatingReserve'],
+    ];
+
+    for (const [modelName, resultKey] of copyableModels) {
+      const records = await this.listModelRecords(modelName, { cid: sourceCid });
+      for (const record of records) {
+        const payload = this.prepareCopyPayload(modelName, record, targetCid);
+        if (!payload) continue;
+        await this.saveModelRecord(modelName, payload, {}, {});
+        result[resultKey] += 1;
+      }
+    }
+
     return {
       success: true,
-      message: 'Data copy endpoint is available',
-      sourceCid: this.numberValue(body.cid || body.copyFromCID || body.copyFromCid || 0),
-      targetCid: this.numberValue(body.copyToCID || body.targetCid || 0),
-      received: body ?? {},
+      message: 'Data copy completed successfully',
+      sourceCid,
+      targetCid,
+      counts: result,
     };
+  }
+
+  private prepareCopyPayload(modelName: string, record: AnyRecord, targetCid: number) {
+    const merged: AnyRecord = { ...this.toRecord(record), ...this.toRecord(record?.data), cid: targetCid };
+    const idField = this.idFieldForModel(modelName);
+    delete merged.id;
+    delete merged.createdAt;
+    delete merged.updatedAt;
+    delete merged.resultId;
+    delete merged.ResultId;
+    delete merged.active;
+    delete merged[idField];
+    if (modelName === 'filing') {
+      delete merged.fid;
+    }
+    return merged;
   }
 
   private buildXmlPayload(cid: number, records: AnyRecord[] = []) {
@@ -1717,14 +2299,135 @@ export class CompatibilityController {
   }
 
   private toLegacyCompanyFilingFlags(flags: AnyRecord) {
+    const persisted = this.toRecord(flags?.data);
+    const flagValue = (key: string) => persisted[key] ?? persisted[key.charAt(0).toUpperCase() + key.slice(1)] ?? false;
     return {
+      ...persisted,
       ...flags,
       id: flags.cid,
       cid: flags.cid,
       includeAssets: flags.includeAssets,
       includeEntities: flags.includeEntities,
       includeFilings: flags.includeFilings,
+      incAuth: flagValue('incAuth'),
+      IncAuth: flagValue('incAuth'),
+      incCS: flagValue('incCS'),
+      IncCS: flagValue('incCS'),
+      incMit: flagValue('incMit'),
+      IncMit: flagValue('incMit'),
+      incOR: flagValue('incOR'),
+      IncOR: flagValue('incOR'),
+      incSL: flagValue('incSL'),
+      IncSL: flagValue('incSL'),
+      incEtoE: flagValue('incEtoE'),
+      IncEtoE: flagValue('incEtoE'),
+      incEtoGen: flagValue('incEtoGen'),
+      IncEtoGen: flagValue('incEtoGen'),
+      incEtoPPA: flagValue('incEtoPPA'),
+      IncEtoPPA: flagValue('incEtoPPA'),
+      incEtoVA: flagValue('incEtoVA'),
+      IncEtoVA: flagValue('incEtoVA'),
+      incIPSS: flagValue('incIPSS'),
+      IncIPSS: flagValue('incIPSS'),
+      incIMSS: flagValue('incIMSS'),
+      IncIMSS: flagValue('incIMSS'),
+      sandboxTest: persisted.sandboxTest ?? persisted.SandboxTest ?? false,
+      filingSelections: persisted.filingSelections ?? persisted.FilingSelections ?? {},
     };
+  }
+
+  private async persistCompanyFilingFlagState(cid: number, state: AnyRecord) {
+    const updatedAt = state.updatedAt || new Date().toISOString();
+    const selection = {
+      table: state.table,
+      tableId: state.tableId,
+      value: state.value,
+      whereIds: state.whereIds,
+      updateAll: Boolean(state.updateAll),
+      count: this.numberValue(state.count),
+      updatedAt,
+      updatedBy: state.updatedBy ?? null,
+    };
+
+    const company = await this.prisma.company.findUnique({ where: { cid } });
+    if (company) {
+      await this.prisma.company.update({
+        where: { cid },
+        data: {
+          data: {
+            ...this.toRecord(company.data),
+            filingSelections: {
+              ...(this.toRecord(company.data)?.filingSelections || {}),
+              [this.normalizeFilingFlagTable(state.table)]: selection,
+            },
+            filingFlagsUpdatedAt: updatedAt,
+          },
+        },
+      });
+    }
+
+    await this.prisma.companyFilingFlags.upsert({
+      where: { cid },
+      update: {
+        data: {
+          ...(this.toRecord((await this.prisma.companyFilingFlags.findUnique({ where: { cid } }))?.data)),
+          filingSelections: {
+            ...(this.toRecord((await this.prisma.companyFilingFlags.findUnique({ where: { cid } }))?.data)?.filingSelections || {}),
+            [this.normalizeFilingFlagTable(state.table)]: selection,
+          },
+          filingFlagsUpdatedAt: updatedAt,
+        },
+      },
+      create: {
+        cid,
+        includeAssets: true,
+        includeEntities: true,
+        includeFilings: true,
+        data: {
+          filingSelections: {
+            [this.normalizeFilingFlagTable(state.table)]: selection,
+          },
+          filingFlagsUpdatedAt: updatedAt,
+        },
+      },
+    });
+  }
+
+  private normalizeFilingFlagTable(table: string) {
+    return (table || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  private modelForFilingFlagTable(table: string) {
+    const normalized = this.normalizeFilingFlagTable(table);
+    const mapping: Record<string, string> = {
+      tblasset: 'asset',
+      asset: 'asset',
+      mbrcategorystatus: 'categoryStatus',
+      categorystatus: 'categoryStatus',
+      mbrmitigations: 'mitigation',
+      mitigation: 'mitigation',
+      mbrselflimitations: 'selfLimitation',
+      selflimitation: 'selfLimitation',
+      mbroperatingreserves: 'operatingReserve',
+      operatingreserve: 'operatingReserve',
+      mbr_operatingreserves: 'operatingReserve',
+      entities_to_entities: 'entityToEntity',
+      entitiestoentities: 'entityToEntity',
+      entities_to_generator_assets: 'entityToGeneratorAsset',
+      entitiestogeneratorassets: 'entityToGeneratorAsset',
+      entities_to_ppas: 'entityToPpa',
+      entitiestoppas: 'entityToPpa',
+      entities_to_vertical_assets: 'entityToVerticalAsset',
+      entitiestoverticalassets: 'entityToVerticalAsset',
+      indicativemss: 'indicativeMarketScreenStudy',
+      imss: 'indicativeMarketScreenStudy',
+      indicativepss: 'indicativePowerSupplyStudy',
+      ipss: 'indicativePowerSupplyStudy',
+      mbrauthorizations: 'mbrAuthorization',
+      mbrauth: 'mbrAuthorization',
+      mbr_authorizations: 'mbrAuthorization',
+    };
+    return mapping[normalized] || null;
   }
 
   private normalize(value: string) {
