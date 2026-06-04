@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
+import { getJwtRefreshSecret } from '../../../config/jwt.config';
+
 @Injectable()
 export class RefreshTokenStrategy extends PassportStrategy(
   Strategy,
@@ -16,7 +18,7 @@ export class RefreshTokenStrategy extends PassportStrategy(
       ignoreExpiration: false,
 
       // JWT secret key
-      secretOrKey: process.env.JWT_REFRESH_SECRET || 'refreshSecretKey',
+      secretOrKey: getJwtRefreshSecret(),
     });
   }
 
@@ -24,8 +26,12 @@ export class RefreshTokenStrategy extends PassportStrategy(
   async validate(payload: any) {
     return {
       id: payload.sub,
+      uid: payload.uid,
       email: payload.email,
       role: payload.role,
+      aid: payload.aid,
+      cid: payload.cid,
+      gid: payload.gid,
     };
   }
 }

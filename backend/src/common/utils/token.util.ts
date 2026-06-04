@@ -3,6 +3,18 @@ export function extractBearerToken(header?: string | null) {
     return null;
   }
 
-  const prefix = 'Bearer ';
-  return header.startsWith(prefix) ? header.slice(prefix.length).trim() : null;
+  const [type, token] = header.trim().split(/\s+/, 2);
+  return type?.toLowerCase() === 'bearer' && token ? token.trim() : null;
+}
+
+export function maskToken(token?: string | null) {
+  if (!token) {
+    return '';
+  }
+
+  if (token.length <= 12) {
+    return '***';
+  }
+
+  return `${token.slice(0, 6)}...${token.slice(-4)}`;
 }

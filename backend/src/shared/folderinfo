@@ -1,0 +1,5 @@
+shared/
+
+Shared application-level contracts live here. Use this folder for DTOs,
+interfaces, helper functions, services, and types that are reused across
+multiple modules but are not NestJS framework primitives.

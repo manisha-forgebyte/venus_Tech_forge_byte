@@ -1,15 +1,13 @@
-1. common/
+common/
 
-Used for reusable backend logic.
+Reusable backend building blocks live here. Keep cross-cutting code in this
+folder when it is shared by more than one module.
 
-Example:
-
-auth guards
-interceptors
-filters
-utility functions
-middleware
-
-Meaning:
-
-common = reusable things used everywhere
+Current responsibilities:
+- decorators: route metadata helpers
+- filters: global exception response shaping
+- guards: authentication and role guards
+- interceptors: logging and response shaping
+- middlewares: request-level Express middleware
+- pipes: validation and parsing helpers
+- utils: framework-neutral helper functions

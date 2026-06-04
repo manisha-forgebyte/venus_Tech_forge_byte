@@ -13,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { getJwtRefreshSecret, getJwtSecret } from '../../config/jwt.config';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -93,7 +94,7 @@ export class AuthService {
 
     try {
       const payload = await this.jwtService.verifyAsync(token, {
-        secret: process.env.JWT_REFRESH_SECRET || 'refreshSecretKey',
+        secret: getJwtRefreshSecret(),
       });
 
       const user = await this.prisma.user.findUnique({
@@ -130,12 +131,12 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_SECRET || 'secretKey',
+      secret: getJwtSecret(),
       expiresIn: '1h',
     });
 
     const refreshToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET || 'refreshSecretKey',
+      secret: getJwtRefreshSecret(),
       expiresIn: '7d',
     });
 

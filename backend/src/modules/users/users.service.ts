@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
+import { DEFAULT_USER_PASSWORD } from '../../constants/auth.constants';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -15,7 +16,7 @@ export class UsersService {
         ...(isActive === undefined ? {} : { isActive }),
       },
       orderBy: { uid: 'asc' },
-    });
+    }).then((users) => users.map((user) => this.withResultId(user)));
   }
 
   async findOne(uid: number) {
@@ -23,15 +24,16 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    return user;
+    return this.withResultId(user);
   }
 
   async create(data: Partial<User> & { password?: string }) {
     const uid = Number((data as any).uid || (data as any).Uid || (data as any).id || 0);
     const email = this.normalizeEmail((data as any).email || (data as any).Email || (data as any).eMail);
-    const password = typeof (data as any).password === 'string' && (data as any).password.trim()
-      ? await bcrypt.hash((data as any).password.trim(), 10)
-      : undefined;
+    const hasRequestedPassword = typeof (data as any).password === 'string' && (data as any).password.trim();
+    const requestedPassword = hasRequestedPassword ? (data as any).password.trim() : '';
+    const createPassword = await bcrypt.hash(requestedPassword || process.env.DEFAULT_USER_PASSWORD || DEFAULT_USER_PASSWORD, 10);
+    const updatePassword = requestedPassword ? await bcrypt.hash(requestedPassword, 10) : undefined;
     const payload = this.buildPayload(data);
     const name = payload.name || email || 'User';
     const createData: any = {
@@ -46,12 +48,12 @@ export class UsersService {
           where: { uid },
           update: {
             ...updateData,
-            ...(password ? { password } : {}),
+            ...(updatePassword ? { password: updatePassword } : {}),
           } as any,
           create: {
             ...createData,
             uid,
-            ...(password ? { password } : {}),
+            password: createPassword,
           } as any,
         })
       : email
@@ -59,18 +61,18 @@ export class UsersService {
             where: { email },
             update: {
               ...updateData,
-              ...(password ? { password } : {}),
+              ...(updatePassword ? { password: updatePassword } : {}),
             } as any,
             create: {
               ...createData,
               email,
-              ...(password ? { password } : {}),
+              password: createPassword,
             } as any,
           })
         : await this.prisma.user.create({
             data: {
               ...createData,
-              ...(password ? { password } : {}),
+              password: createPassword,
             } as any,
           });
     return this.withResultId(user);
@@ -100,7 +102,17 @@ export class UsersService {
 
   private withResultId(user: User) {
     return {
-      ...user,
+      id: user.id,
+      uid: user.uid,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      aid: user.aid,
+      cid: user.cid,
+      gid: user.gid,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
       resultId: user.uid,
       ResultId: user.uid,
     };
@@ -119,6 +131,7 @@ export class UsersService {
     };
 
     delete payload.Password;
+    delete payload.password;
     delete payload.Email;
     delete payload.Uid;
     delete payload.id;

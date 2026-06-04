@@ -1,3 +1,6 @@
+export const getDatabaseUrl = () => process.env.DATABASE_URL || '';
+
 export default () => ({
-  url: process.env.DATABASE_URL || '',
+  url: getDatabaseUrl(),
+  isConfigured: Boolean(getDatabaseUrl()),
 });

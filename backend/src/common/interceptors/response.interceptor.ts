@@ -11,6 +11,10 @@ export class ResponseInterceptor implements NestInterceptor {
   intercept(_context: ExecutionContext, next: CallHandler): Observable<any> {
     return next.handle().pipe(
       map((data) => {
+        if (typeof data === 'string') {
+          return data;
+        }
+
         if (Array.isArray(data)) {
           return data;
         }

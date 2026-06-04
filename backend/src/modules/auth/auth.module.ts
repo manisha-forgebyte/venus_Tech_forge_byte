@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
+import { getJwtSecret } from '../../config/jwt.config';
 import { PrismaModule } from '../../prisma/prisma.module';
 
 @Module({
@@ -16,7 +17,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
     PrismaModule,
 
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'secretKey',
+      secret: getJwtSecret(),
       signOptions: {
         expiresIn: '1h',
       },

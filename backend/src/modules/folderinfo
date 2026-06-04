@@ -1,21 +1,18 @@
-4. modules/
+modules/
 
-MOST IMPORTANT folder.
+Feature modules live here. Each business area should keep its controller,
+service, DTOs, and local entity/view-model types together.
 
-Every feature goes here.
+Current active modules:
+- auth
+- assets
+- companies
+- compatibility
+- entities
+- filings
+- market
+- reserve
+- users
 
-Example:
-
-auth
-users
-companies
-payments
-products
-
-Meaning:
-
-module = one business feature
-
-NestJS is module-based architecture.
-
-Very important enterprise concept.
+The compatibility module is the main bridge for the existing Angular frontend
+because it preserves the legacy /api/{Module}/{Action} route pattern.

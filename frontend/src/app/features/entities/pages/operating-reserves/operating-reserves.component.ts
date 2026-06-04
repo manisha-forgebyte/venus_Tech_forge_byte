@@ -584,12 +584,13 @@ export class OperatingReservesComponent implements OnInit {
     }
 
     
+    const isEditMode = this.modalMode === 'EDIT' && !!this.editingId;
     const payload: any = {
       record_type_fk: null,
       record_type_cd: this.validator.sanitizeText(this.form.recordType),
-      pid: this.portfolioId,
+      pid: isEditMode ? this.editingId : 0,
       cid: this.companyId || null,
-      mbr_operating_reserves_id: this.editingId ?? null,
+      mbr_operating_reserves_id: isEditMode ? this.editingId : null,
       reporting_entity_cid_cd: null,
       mbr_submission_fk: null,
       active_date: null,
@@ -647,9 +648,10 @@ export class OperatingReservesComponent implements OnInit {
       balancingAuthority: r.baa_desc ?? r.Balancing_Authority_cd ?? r.balancing_Authority_cd ?? '',
       effectiveDate: (r.or_authorization_effective_date1 || r.or_authorization_effective_date || '').toString().substring(0,10) || '',
       endDate: (r.or_authorization_end_date1 || r.or_authorization_end_date || '').toString().substring(0,10) || '',
-      recordType: r.record_type_cd ?? 'New'
+      recordType: r.record_type_cd ?? 'New',
+      referenceId: r.reference_id ? String(r.reference_id) : ''
     };
-    this.editingId = r.mbr_operating_reserves_id ?? null;
+    this.editingId = r.pid ?? r.mbr_operating_reserves_id ?? null;
     this.modalMode = 'EDIT';
   }
 

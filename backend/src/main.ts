@@ -6,6 +6,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { AppValidationPipe } from './common/pipes/validation.pipe';
+import { DEFAULT_FRONTEND_ORIGIN, DEFAULT_PORT } from './constants/app.constants';
 
 async function bootstrap() {
   // Create NestJS application
@@ -17,13 +18,18 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter(), new HttpExceptionFilter());
 
   // Enable CORS for the Angular dev server.
+  const allowedOrigins = (process.env.FRONTEND_URL || DEFAULT_FRONTEND_ORIGIN)
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: ['http://localhost:4200'],
+    origin: allowedOrigins,
     credentials: true,
   });
 
   // Start backend server
-  const port = Number(process.env.PORT || 3000);
+  const port = Number(process.env.PORT || DEFAULT_PORT);
   await app.listen(port);
 
   console.log(`Backend running on http://localhost:${port}`);

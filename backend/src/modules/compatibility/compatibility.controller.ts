@@ -8,7 +8,10 @@ import {
   Post,
   Put,
   Query,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { Role, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
@@ -45,6 +48,8 @@ const areaToModel: Record<string, string> = {
 
 @Controller('api')
 export class CompatibilityController {
+  private readonly userProfileExtras = new Map<number, AnyRecord>();
+
   constructor(
     private readonly authService: AuthService,
     private readonly prisma: PrismaService,
@@ -90,8 +95,14 @@ export class CompatibilityController {
   }
 
   @Post([':area/:action', ':area/:action/:p1'])
+  @UseInterceptors(AnyFilesInterceptor())
   @HttpCode(200)
-  async post(@Param() params: AnyRecord, @Body() body: AnyRecord, @Query() query: AnyRecord) {
+  async post(
+    @Param() params: AnyRecord,
+    @Body() body: AnyRecord,
+    @Query() query: AnyRecord,
+    @UploadedFiles() files: any[] = [],
+  ) {
     const area = this.normalize(params.area);
     const action = this.normalize(params.action);
 
@@ -99,7 +110,7 @@ export class CompatibilityController {
     if (area === 'login' && action === 'refreshtoken') return this.authService.refreshToken(body as any);
     if (area === 'login' && action === 'logout') return this.authService.logout();
 
-    if (area === 'common') return this.handleCommonPost(action, params, body, query);
+    if (area === 'common') return this.handleCommonPost(action, params, body, query, files);
     if (area === 'user') return this.handleUserPost(action, body, params, query);
     if (area === 'account') return this.handleAccountPost(action, body, params, query);
     if (area === 'company') return this.handleCompanyPost(action, body, params, query);
@@ -265,14 +276,9 @@ export class CompatibilityController {
     return [];
   }
 
-  private async handleCommonPost(action: string, params: AnyRecord, body: AnyRecord, query: AnyRecord) {
+  private async handleCommonPost(action: string, params: AnyRecord, body: AnyRecord, query: AnyRecord, files: any[] = []) {
     if (action === 'importentitiesfromexcel' || action === 'importassetsfromexcel') {
-      return {
-        success: true,
-        message: 'Import endpoint accepted',
-        cid: this.numberValue(params.p1 || query.cid),
-        received: body ?? {},
-      };
+      return this.importEntityWorkbook(action, params, body, query, files);
     }
 
     if (action === 'copyentitydata') {
@@ -280,6 +286,192 @@ export class CompatibilityController {
     }
 
     return { success: false, message: `Unsupported common action: ${action}`, data: body ?? {} };
+  }
+
+  private async importEntityWorkbook(action: string, params: AnyRecord, body: AnyRecord, query: AnyRecord, files: any[] = []) {
+    const cid = this.numberValue(params.p1 || query.cid || body?.cid || body?.Cid);
+    if (!cid) {
+      return { success: false, message: 'CID is required for import', counts: {}, errors: ['Missing company id'] };
+    }
+
+    const parseResult = this.extractImportRows(body, files);
+    if (parseResult.errors.length) {
+      return {
+        success: false,
+        message: 'Import file could not be processed',
+        cid,
+        counts: {},
+        errors: parseResult.errors,
+      };
+    }
+
+    const defaultModel = action === 'importassetsfromexcel' ? 'asset' : 'entity';
+    const counts: Record<string, number> = {};
+    const errors: string[] = [];
+
+    for (const [index, row] of parseResult.rows.entries()) {
+      const modelName = this.importModelForRow(row, defaultModel);
+      if (!modelName) {
+        errors.push(`Row ${index + 1}: unsupported module/table "${row.module || row.table || row.screen || ''}"`);
+        continue;
+      }
+
+      try {
+        await this.saveImportedRow(modelName, { ...row, cid });
+        counts[modelName] = (counts[modelName] || 0) + 1;
+      } catch (error: any) {
+        errors.push(`Row ${index + 1}: ${error?.message || 'save failed'}`);
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      message: errors.length ? 'Import completed with errors' : 'Import completed successfully',
+      cid,
+      totalRows: parseResult.rows.length,
+      counts,
+      errors,
+    };
+  }
+
+  private extractImportRows(body: AnyRecord, files: any[] = []) {
+    const rows: AnyRecord[] = [];
+    const errors: string[] = [];
+    const bodyRows = body?.records || body?.rows || body?.items || body?.data;
+
+    if (Array.isArray(bodyRows)) {
+      rows.push(...bodyRows.map((row) => this.toRecord(row)));
+    } else if (typeof bodyRows === 'string') {
+      rows.push(...this.parseImportText(bodyRows, errors));
+    } else if (body && Object.keys(body).some((key) => !['cid', 'Cid', 'companyId'].includes(key))) {
+      rows.push(this.toRecord(body));
+    }
+
+    for (const file of files || []) {
+      const filename = String(file?.originalname || file?.filename || '').toLowerCase();
+      const buffer: Buffer | undefined = file?.buffer;
+      if (!buffer?.length) continue;
+
+      if (filename.endsWith('.xlsx') || filename.endsWith('.xls')) {
+        errors.push(`${file.originalname || 'Excel file'} is a binary Excel file. Install an XLSX parser or submit CSV/JSON rows for server import.`);
+        continue;
+      }
+
+      rows.push(...this.parseImportText(buffer.toString('utf8'), errors));
+    }
+
+    if (!rows.length && !errors.length) {
+      errors.push('No import rows were provided');
+    }
+
+    return { rows, errors };
+  }
+
+  private parseImportText(text: string, errors: string[]) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((row) => this.toRecord(row));
+      if (Array.isArray(parsed?.rows)) return parsed.rows.map((row: unknown) => this.toRecord(row));
+      if (Array.isArray(parsed?.records)) return parsed.records.map((row: unknown) => this.toRecord(row));
+      return [this.toRecord(parsed)];
+    } catch {
+      // Fall through to CSV parsing.
+    }
+
+    const lines = trimmed.split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) {
+      errors.push('Import text must be JSON or CSV with a header row');
+      return [];
+    }
+
+    const headers = this.parseCsvLine(lines[0]).map((header) => header.trim());
+    return lines.slice(1).map((line) => {
+      const values = this.parseCsvLine(line);
+      return headers.reduce((record: AnyRecord, header, index) => {
+        record[header] = values[index] ?? '';
+        return record;
+      }, {});
+    });
+  }
+
+  private parseCsvLine(line: string) {
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+      const next = line[index + 1];
+      if (char === '"' && next === '"') {
+        current += '"';
+        index += 1;
+      } else if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        values.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim());
+    return values;
+  }
+
+  private importModelForRow(row: AnyRecord, defaultModel: string) {
+    const key = this.normalize(row.module || row.table || row.screen || row.type || defaultModel).replace(/[^a-z0-9]/g, '');
+    const mapping: Record<string, string> = {
+      asset: 'asset',
+      assets: 'asset',
+      entity: 'entity',
+      entities: 'entity',
+      mbrauth: 'mbrAuthorization',
+      mbrauthorization: 'mbrAuthorization',
+      mbrauthorizations: 'mbrAuthorization',
+      authorization: 'mbrAuthorization',
+      authorizations: 'mbrAuthorization',
+      catstatus: 'categoryStatus',
+      categorystatus: 'categoryStatus',
+      mitigation: 'mitigation',
+      mitigations: 'mitigation',
+      selflimit: 'selfLimitation',
+      selflimitation: 'selfLimitation',
+      selflimitations: 'selfLimitation',
+      or: 'operatingReserve',
+      operatingreserve: 'operatingReserve',
+      operatingreserves: 'operatingReserve',
+      etoe: 'entityToEntity',
+      entitytoentity: 'entityToEntity',
+      entitiestoentities: 'entityToEntity',
+      etogen: 'entityToGeneratorAsset',
+      entitytogeneratorasset: 'entityToGeneratorAsset',
+      entitiestogeneratorassets: 'entityToGeneratorAsset',
+      etoppa: 'entityToPpa',
+      etoppas: 'entityToPpa',
+      entitytoppa: 'entityToPpa',
+      entitiestoppas: 'entityToPpa',
+      etova: 'entityToVerticalAsset',
+      entitytoverticalasset: 'entityToVerticalAsset',
+      entitiestoverticalassets: 'entityToVerticalAsset',
+      imss: 'indicativeMarketScreenStudy',
+      indicativemss: 'indicativeMarketScreenStudy',
+      indicativemarketscreenstudy: 'indicativeMarketScreenStudy',
+      ipss: 'indicativePowerSupplyStudy',
+      indicativepss: 'indicativePowerSupplyStudy',
+      indicativepowersupplystudy: 'indicativePowerSupplyStudy',
+    };
+    return mapping[key] || '';
+  }
+
+  private async saveImportedRow(modelName: string, row: AnyRecord) {
+    const payload: AnyRecord = { ...row, isActive: row.isActive === undefined ? true : row.isActive };
+    delete payload.module;
+    delete payload.table;
+    delete payload.screen;
+    return this.saveModelRecord(modelName, payload, {}, {});
   }
 
   private async getDropdownList(table: string, valueField: string, textField: string, where: string, query: AnyRecord) {
@@ -343,6 +535,10 @@ export class CompatibilityController {
         orderBy: { sortOrder: 'asc' },
       });
       return lookups.map((lookup) => this.projectDropdownRecord(lookup, 'commonLookup', resolvedValueField, resolvedTextField));
+    }
+
+    if (tableName.includes('lookbaa') || tableName.includes('balancingauthority') || tableName.includes('balancing_authority')) {
+      return this.getBalancingAuthorityDropdown(resolvedValueField, resolvedTextField);
     }
 
     const modelName = this.dropdownModelForTable(tableName);
@@ -574,14 +770,7 @@ export class CompatibilityController {
 
   private async handleInvoicePost(action: string, body: AnyRecord, params: AnyRecord, query: AnyRecord) {
     if (action.includes('forwardtoexternal')) {
-      return {
-        success: true,
-        message: 'Forward endpoint is available',
-        action,
-        received: body ?? {},
-        params,
-        query,
-      };
+      return this.forwardToExternal('invoice', action, body, params, query);
     }
 
     if (action === 'createinvoice' || action === 'updateinvoice') return this.saveInvoice(body, query);
@@ -596,6 +785,99 @@ export class CompatibilityController {
     if (action === 'adminupdateinvoicesisbilledbyids') return this.updateInvoicesBilled(body);
     if (action === 'adminchangeaccountforven') return this.changeInvoiceAccount(this.numberValue(params.p1));
     return { success: false, message: `Unsupported invoice action: ${action}`, data: body ?? {} };
+  }
+
+  private async forwardToExternal(modelName: string, action: string, body: AnyRecord, params: AnyRecord, query: AnyRecord) {
+    const targetUrl = this.stringValue(query.url || query.externalUrl || body?.url || body?.externalUrl || body?.targetUrl);
+    if (!targetUrl) {
+      return {
+        success: false,
+        message: 'External URL is required',
+        action,
+        modelName,
+        received: body ?? {},
+      };
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(targetUrl);
+    } catch {
+      return {
+        success: false,
+        message: 'External URL is invalid',
+        action,
+        modelName,
+        url: targetUrl,
+      };
+    }
+
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return {
+        success: false,
+        message: 'External URL must use http or https',
+        action,
+        modelName,
+        url: targetUrl,
+      };
+    }
+
+    const payload = { ...this.toRecord(body) };
+    delete payload.url;
+    delete payload.externalUrl;
+    delete payload.targetUrl;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(parsedUrl.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Venus-Source': 'compatibility-api',
+          'X-Venus-Model': modelName,
+        },
+        body: JSON.stringify({
+          action,
+          modelName,
+          params,
+          query: { ...query, url: undefined, externalUrl: undefined },
+          data: payload,
+        }),
+        signal: controller.signal,
+      });
+
+      const responseText = await response.text();
+      let responseBody: unknown = responseText;
+      try {
+        responseBody = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        responseBody = responseText;
+      }
+
+      return {
+        success: response.ok,
+        message: response.ok ? 'Forwarded successfully' : 'Forward target returned an error',
+        action,
+        modelName,
+        url: parsedUrl.toString(),
+        status: response.status,
+        statusText: response.statusText,
+        response: responseBody,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error?.name === 'AbortError' ? 'Forward request timed out' : 'Forward request failed',
+        action,
+        modelName,
+        url: parsedUrl.toString(),
+        error: error?.message || String(error),
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async handleImssGet(action: string, params: AnyRecord) {
@@ -664,8 +946,8 @@ export class CompatibilityController {
   private async buildFercApiPayload(source: AnyRecord) {
     const uid = this.numberValue(source.uid || source.userId || source.user || source.p1);
     const cid = this.numberValue(source.cid || source.companyCid || source.companyID || source.companyId || source.p2);
-    const companyId = this.stringValue(source.company_id || source.companyId || source.companyID || source.company || '');
-    const entityQuery = this.stringValue(source.entity || source.entityName || source.subFk || '');
+    const companyId = this.stringValue(source.company_id || source.companyId || source.companyID || source.company || source.p3 || '');
+    const entityQuery = this.stringValue(source.entity || source.entityName || source.subFk || source.p4 || '');
 
     const user = uid ? await this.prisma.user.findUnique({ where: { uid } }) : null;
     const company = companyId
@@ -710,6 +992,46 @@ export class CompatibilityController {
       }),
     ]);
 
+    const [
+      authorizations,
+      categoryStatus,
+      mitigations,
+      selfLimitations,
+      operatingReserves,
+      entitiesToEntities,
+      entitiesToGeneratorAssets,
+      entitiesToPpas,
+      entitiesToVerticalAssets,
+      indicativeMss,
+      indicativePss,
+    ] = await Promise.all([
+      this.listModelRecords('mbrAuthorization', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('categoryStatus', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('mitigation', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('selfLimitation', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('operatingReserve', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('entityToEntity', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('entityToGeneratorAsset', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('entityToPpa', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('entityToVerticalAsset', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('indicativeMarketScreenStudy', { cid: effectiveCid, isActive: true }),
+      this.listModelRecords('indicativePowerSupplyStudy', { cid: effectiveCid, isActive: true }),
+    ]);
+
+    const matchesSubmission = (record: AnyRecord) => {
+      if (!entityQuery) return true;
+      const queryText = entityQuery.toLowerCase();
+      return [
+        record.mbr_submission_fk,
+        record.fercId,
+        record.authorization_docket_number,
+        record.authorization_docket,
+        record.entity_ID,
+        record.reportable_entity_ID,
+        record.blanket_Auth_Docket_Number,
+      ].some((value) => String(value ?? '').toLowerCase().includes(queryText));
+    };
+
     return {
       user: user ? this.toLegacyUser(user) : null,
       company: company ? this.toLegacyCompany(company) : null,
@@ -718,6 +1040,19 @@ export class CompatibilityController {
       assets: assets.map((item) => this.toLegacyAsset(item)),
       entities: entities.map((item) => this.toLegacyEntity(item)),
       filings: filings.map((item) => this.decorateRecord('filing', item)),
+      screens: {
+        authorizations: authorizations.filter(matchesSubmission),
+        categoryStatus: categoryStatus.filter(matchesSubmission),
+        mitigations: mitigations.filter(matchesSubmission),
+        selfLimitations: selfLimitations.filter(matchesSubmission),
+        operatingReserves: operatingReserves.filter(matchesSubmission),
+        entitiesToEntities: entitiesToEntities.filter(matchesSubmission),
+        entitiesToGeneratorAssets: entitiesToGeneratorAssets.filter(matchesSubmission),
+        entitiesToPPAs: entitiesToPpas.filter(matchesSubmission),
+        entitiesToVerticalAssets: entitiesToVerticalAssets.filter(matchesSubmission),
+        indicativeMSS: indicativeMss.filter(matchesSubmission),
+        indicativePSS: indicativePss.filter(matchesSubmission),
+      },
       source: {
         uid,
         cid: effectiveCid,
@@ -758,14 +1093,7 @@ export class CompatibilityController {
 
   private async handleGenericPost(modelName: string, action: string, body: AnyRecord, params: AnyRecord, query: AnyRecord) {
     if (action.includes('forwardtoexternal')) {
-      return {
-        success: true,
-        message: 'Forward endpoint is available',
-        action,
-        received: body ?? {},
-        params,
-        query,
-      };
+      return this.forwardToExternal(modelName, action, body, params, query);
     }
 
     if (this.isCreateAction(action) || this.isSaveAction(action) || action.startsWith('insupd')) {
@@ -910,7 +1238,9 @@ export class CompatibilityController {
 
   private async createUser(body: AnyRecord) {
     const email = this.stringValue(body.email || body.Email || body.eMail);
-    const name = this.stringValue(body.name || body.Name || body.fullName || body.username || email);
+    const firstName = this.stringValue(body.firstName || body.FirstName || body.first_name || body.fname || body.Fname);
+    const lastName = this.stringValue(body.lastName || body.LastName || body.last_name || body.lname || body.Lname);
+    const name = this.stringValue(body.name || body.Name || body.fullName || body.username || `${firstName} ${lastName}`.trim() || email);
     if (!email) return { success: false, message: 'Email is required' };
 
     const password = this.stringValue(body.password || body.Password || 'Password123');
@@ -938,6 +1268,7 @@ export class CompatibilityController {
         gid,
       },
     });
+    this.rememberUserProfileExtras(user.uid, body);
 
     return {
       success: true,
@@ -955,8 +1286,13 @@ export class CompatibilityController {
 
     if (!uid && !email) return { success: false, message: 'User id or email is required' };
 
+    const firstName = this.stringValue(body.firstName || body.FirstName || body.first_name || body.fname || body.Fname);
+    const lastName = this.stringValue(body.lastName || body.LastName || body.last_name || body.lname || body.Lname);
+    const fullName = this.stringValue(body.name || body.Name || body.fullName || `${firstName} ${lastName}`.trim() || email || 'User');
+
     const data: AnyRecord = {
-      name: this.stringValue(body.name || body.Name || body.fullName || email || 'User'),
+      name: fullName,
+      ...(email ? { email: email.toLowerCase() } : {}),
       role: await this.roleName(gid),
       aid: this.numberValue(body.aid || body.Aid || 1),
       cid: this.numberValue(body.cid || body.Cid || 1),
@@ -970,6 +1306,7 @@ export class CompatibilityController {
     const user = uid
       ? await this.prisma.user.update({ where: { uid }, data })
       : await this.prisma.user.update({ where: { email: email.toLowerCase() }, data });
+    this.rememberUserProfileExtras(user.uid, body);
 
     return {
       success: true,
@@ -1740,11 +2077,12 @@ export class CompatibilityController {
       case 'entityToVerticalAsset':
       case 'indicativeMarketScreenStudy':
       case 'indicativePowerSupplyStudy':
-      case 'mbrAuthorization':
       case 'mitigation':
       case 'selfLimitation':
       case 'operatingReserve':
         return { pid: 'asc' };
+      case 'mbrAuthorization':
+        return { mbrauthid: 'asc' };
       case 'imssParameter':
       case 'ipssParameter':
         return { pid: 'asc' };
@@ -1801,9 +2139,40 @@ export class CompatibilityController {
 
   private resolveIdValue(modelName: string, body: AnyRecord, params: AnyRecord, query: AnyRecord) {
     const idField = this.idFieldForModel(modelName);
-    const candidate = body?.[idField] ?? body?.[idField.toLowerCase()] ?? params?.p1 ?? query?.[idField];
+    const aliasCandidate = this.idAliasValue(modelName, body);
+    const candidate = body?.[idField] ?? body?.[idField.toLowerCase()] ?? aliasCandidate ?? params?.p1 ?? query?.[idField];
     const parsed = Number(candidate);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  private idAliasValue(modelName: string, body: AnyRecord) {
+    if (!body) return undefined;
+    switch (modelName) {
+      case 'mbrAuthorization':
+        return body.mbr_authorization_id ?? body.mbrauthId ?? body.authId;
+      case 'categoryStatus':
+        return body.cat_status_id;
+      case 'mitigation':
+        return body.mitigation_id ?? body.mbr_mitigation_id;
+      case 'selfLimitation':
+        return body.mbr_self_limitations_id ?? body.mbr_self_limitations_id_fk;
+      case 'operatingReserve':
+        return body.mbr_operating_reserves_id;
+      case 'entityToEntity':
+        return body.entities_entities_id;
+      case 'entityToGeneratorAsset':
+        return body.entities_genassets_id;
+      case 'entityToPpa':
+        return body.entities_ppas_id;
+      case 'entityToVerticalAsset':
+        return body.entities_to_vertical_assets_id;
+      case 'indicativeMarketScreenStudy':
+        return body.indicative_mss_id;
+      case 'indicativePowerSupplyStudy':
+        return body.indicative_pss_id;
+      default:
+        return undefined;
+    }
   }
 
   private buildModelData(modelName: string, body: AnyRecord, params: AnyRecord, query: AnyRecord) {
@@ -1847,14 +2216,14 @@ export class CompatibilityController {
       'entityToVerticalAsset',
       'indicativeMarketScreenStudy',
       'indicativePowerSupplyStudy',
-      'mbrAuthorization',
       'mitigation',
       'selfLimitation',
       'operatingReserve',
     ].includes(modelName)) {
+      const resolvedId = this.resolveIdValue(modelName, body, params, query);
       data = {
         ...data,
-        pid: this.optionalNumber(body.pid || body.PID || body.id || params.p1) || undefined,
+        pid: resolvedId || undefined,
       };
     }
 
@@ -2105,15 +2474,40 @@ export class CompatibilityController {
   }
 
   private toLegacyUser(user: User) {
+    const names = this.splitUserName(user.name);
+    const extras = this.userProfileExtras.get(user.uid) || {};
+
     return {
       id: user.uid,
       uid: user.uid,
       Uid: user.uid,
       userId: user.uid,
       name: user.name,
+      UserName: user.name,
       fullName: user.name,
+      firstName: names.firstName,
+      FirstName: names.firstName,
+      first_name: names.firstName,
+      fname: names.firstName,
+      Fname: names.firstName,
+      lastName: names.lastName,
+      LastName: names.lastName,
+      last_name: names.lastName,
+      lname: names.lastName,
+      Lname: names.lastName,
       email: user.email,
       Email: user.email,
+      eMail: user.email,
+      phone: extras.phone ?? extras.workPhone ?? extras.work_phone ?? '',
+      Phone: extras.phone ?? extras.workPhone ?? extras.work_phone ?? '',
+      workPhone: extras.workPhone ?? extras.phone ?? extras.work_phone ?? '',
+      WorkPhone: extras.workPhone ?? extras.phone ?? extras.work_phone ?? '',
+      work_phone: extras.work_phone ?? extras.workPhone ?? extras.phone ?? '',
+      mobile: extras.mobile ?? extras.mobilePhone ?? extras.mobile_phone ?? '',
+      Mobile: extras.mobile ?? extras.mobilePhone ?? extras.mobile_phone ?? '',
+      mobilePhone: extras.mobilePhone ?? extras.mobile ?? extras.mobile_phone ?? '',
+      MobilePhone: extras.mobilePhone ?? extras.mobile ?? extras.mobile_phone ?? '',
+      mobile_phone: extras.mobile_phone ?? extras.mobilePhone ?? extras.mobile ?? '',
       role: user.role,
       rolename: user.role,
       gid: user.gid,
@@ -2127,6 +2521,23 @@ export class CompatibilityController {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  private rememberUserProfileExtras(uid: number, body: AnyRecord) {
+    if (!uid) return;
+
+    const existing = this.userProfileExtras.get(uid) || {};
+    const next = {
+      ...existing,
+      phone: this.stringValue(body.phone || body.Phone || existing.phone || ''),
+      workPhone: this.stringValue(body.workPhone || body.WorkPhone || body.work_phone || body.phone || body.Phone || existing.workPhone || ''),
+      work_phone: this.stringValue(body.work_phone || body.workPhone || body.phone || body.Phone || existing.work_phone || ''),
+      mobile: this.stringValue(body.mobile || body.Mobile || body.mobilePhone || body.MobilePhone || body.mobile_phone || existing.mobile || ''),
+      mobilePhone: this.stringValue(body.mobilePhone || body.MobilePhone || body.mobile || body.Mobile || body.mobile_phone || existing.mobilePhone || ''),
+      mobile_phone: this.stringValue(body.mobile_phone || body.mobilePhone || body.mobile || body.Mobile || existing.mobile_phone || ''),
+    };
+
+    this.userProfileExtras.set(uid, next);
   }
 
   private toLegacyRole(role: Role) {
@@ -2239,6 +2650,8 @@ export class CompatibilityController {
 
   private toLegacyCategoryStatus(record: AnyRecord) {
     const merged = this.mergePersistedRecord(record);
+    const regionCd = merged.region_cd ?? merged.region ?? '';
+    const statusFk = merged.cat_status_in_region_fk ?? merged.catStatusInRegionFk ?? merged.categoryStatus ?? merged.category_status ?? '';
     return {
       ...merged,
       id: merged.pid,
@@ -2246,10 +2659,10 @@ export class CompatibilityController {
       PID: merged.pid,
       gid: merged.gid,
       cat_status_id: merged.cat_status_id ?? merged.catStatusId ?? null,
-      cat_status_in_region_fk: merged.cat_status_in_region_fk ?? merged.catStatusInRegionFk ?? merged.categoryStatus ?? merged.category_status ?? '',
-      cat_status_in_region_desc: merged.cat_status_in_region_desc ?? merged.categoryStatusText ?? '',
-      region_cd: merged.region_cd ?? merged.region ?? '',
-      region_desc: merged.region_desc ?? merged.regionName ?? '',
+      cat_status_in_region_fk: statusFk,
+      cat_status_in_region_desc: merged.cat_status_in_region_desc ?? merged.categoryStatusText ?? this.categoryStatusText(statusFk),
+      region_cd: regionCd,
+      region_desc: merged.region_desc ?? merged.regionName ?? this.regionText(regionCd),
       cat_status_effective_date: merged.cat_status_effective_date ?? merged.effectiveDate ?? '',
       cat_status_effective_date1: merged.cat_status_effective_date1 ?? merged.cat_status_effective_date ?? merged.effectiveDate ?? '',
       record_type_cd: merged.record_type_cd ?? merged.recordType ?? 'New',
@@ -2262,11 +2675,23 @@ export class CompatibilityController {
     const merged = this.mergePersistedRecord(record);
     const idField = this.idFieldForModel(modelName);
     const idValue = merged[idField] ?? merged.pid ?? merged.mbrauthid ?? merged.id;
+    const balancingAuthority = merged.balancing_Authority_cd ?? merged.Balancing_Authority_cd ?? merged.balancing_authority_cd ?? merged.balancingAuthority ?? '';
     const base: AnyRecord = {
       ...merged,
       id: idValue,
       pid: merged.pid ?? idValue,
       active: merged.isActive,
+      gid: merged.gid,
+      record_type_cd: merged.record_type_cd ?? merged.recordType ?? merged.recordTypeCd ?? 'New',
+      reference_id: merged.reference_id ?? merged.referenceId ?? null,
+      mbr_submission_fk: merged.mbr_submission_fk ?? merged.fercId ?? '',
+      active_date: merged.active_date ?? merged.activeDate ?? null,
+      inactive_date: merged.inactive_date ?? merged.inactiveDate ?? null,
+      IncInFiling: merged.IncInFiling ?? merged.incInFiling ?? false,
+      balancing_Authority_cd: balancingAuthority,
+      Balancing_Authority_cd: balancingAuthority,
+      balancing_authority_cd: balancingAuthority,
+      baa_desc: merged.baa_desc ?? merged.balancingAuthorityDesc ?? balancingAuthority,
     };
 
     if (modelName === 'mbrAuthorization') {
@@ -2295,7 +2720,89 @@ export class CompatibilityController {
       };
     }
 
+    if (modelName === 'mitigation') {
+      return {
+        ...base,
+        mitigation_narrative: merged.mitigation_narrative ?? merged.mitigationNarrative ?? merged.narrative ?? '',
+        mitigation_effective_date: merged.mitigation_effective_date ?? merged.effectiveDate ?? '',
+        mitigation_effective_date1: merged.mitigation_effective_date1 ?? merged.mitigation_effective_date ?? merged.effectiveDate ?? '',
+        mitigation_end_date: merged.mitigation_end_date ?? merged.endDate ?? '',
+        mitigation_end_date1: merged.mitigation_end_date1 ?? merged.mitigation_end_date ?? merged.endDate ?? '',
+      };
+    }
+
+    if (modelName === 'selfLimitation') {
+      return {
+        ...base,
+        region_cd: merged.region_cd ?? merged.region ?? '',
+        region_desc: merged.region_desc ?? this.regionText(merged.region_cd ?? merged.region ?? ''),
+        self_limit_effective_date: merged.self_limit_effective_date ?? merged.effectiveDate ?? '',
+        self_limit_effective_date1: merged.self_limit_effective_date1 ?? merged.self_limit_effective_date ?? merged.effectiveDate ?? '',
+        self_limit_end_date: merged.self_limit_end_date ?? merged.endDate ?? '',
+        self_limit_end_date1: merged.self_limit_end_date1 ?? merged.self_limit_end_date ?? merged.endDate ?? '',
+        mbr_self_limitations_id: merged.mbr_self_limitations_id ?? idValue,
+      };
+    }
+
+    if (modelName === 'operatingReserve') {
+      return {
+        ...base,
+        mbr_operating_reserves_id: merged.mbr_operating_reserves_id ?? idValue,
+        or_authorization_effective_date: merged.or_authorization_effective_date ?? merged.effectiveDate ?? '',
+        or_authorization_effective_date1: merged.or_authorization_effective_date1 ?? merged.or_authorization_effective_date ?? merged.effectiveDate ?? '',
+        or_authorization_end_date: merged.or_authorization_end_date ?? merged.endDate ?? '',
+        or_authorization_end_date1: merged.or_authorization_end_date1 ?? merged.or_authorization_end_date ?? merged.endDate ?? '',
+      };
+    }
+
+    if (modelName === 'indicativeMarketScreenStudy' || modelName === 'indicativePowerSupplyStudy') {
+      return {
+        ...base,
+        indicative_mss_id: merged.indicative_mss_id ?? idValue,
+        indicative_pss_id: merged.indicative_pss_id ?? idValue,
+        study_type_cd: merged.study_type_cd ?? merged.studyTypeCd ?? merged.record_type_cd ?? 'New',
+        Study_type_cd: merged.study_type_cd ?? merged.studyTypeCd ?? merged.record_type_cd ?? 'New',
+        study_end_year: merged.study_end_year ?? merged.studyEndYear ?? '',
+        Study_end_year: merged.study_end_year ?? merged.studyEndYear ?? '',
+        study_area_balancing_authority_cd: merged.study_area_balancing_authority_cd ?? merged.studyAreaBalancingAuthorityCd ?? '',
+        study_area_balancing_authority: merged.study_area_balancing_authority ?? merged.studyAreaBalancingAuthority ?? merged.study_area_balancing_authority_cd ?? '',
+        Study_area_balancing_authority: merged.Study_area_balancing_authority ?? merged.study_area_balancing_authority ?? merged.studyAreaBalancingAuthority ?? merged.study_area_balancing_authority_cd ?? '',
+        scenario_type: merged.scenario_type ?? merged.scenarioType ?? '',
+        scenario_type_desc: merged.scenario_type_desc ?? merged.scenarioTypeDesc ?? merged.scenario_type ?? '',
+        Scenario_type_desc: merged.scenario_type_desc ?? merged.scenarioTypeDesc ?? merged.scenario_type ?? '',
+        study_parameters_count: merged.study_parameters_count ?? merged.Total ?? merged.total ?? 0,
+      };
+    }
+
     return base;
+  }
+
+  private regionText(value: unknown) {
+    const key = String(value ?? '').trim().toUpperCase();
+    const regions: Record<string, string> = {
+      CE: 'Central',
+      CENTRAL: 'Central',
+      NE: 'Northeast',
+      NORTHEAST: 'Northeast',
+      NW: 'Northwest',
+      NORTHWEST: 'Northwest',
+      SE: 'Southeast',
+      SOUTHEAST: 'Southeast',
+      SPP: 'Southwest Power Pool',
+      SW: 'Southwest',
+      SOUTHWEST: 'Southwest',
+    };
+    return regions[key] || String(value ?? '');
+  }
+
+  private categoryStatusText(value: unknown) {
+    const key = String(value ?? '').trim();
+    const statuses: Record<string, string> = {
+      '1': 'Category 1',
+      '2': 'Category 2',
+      '3': 'No MBR authority in the region',
+    };
+    return statuses[key] || String(value ?? '');
   }
 
   private toLegacyCompanyFilingFlags(flags: AnyRecord) {
@@ -2458,12 +2965,54 @@ export class CompatibilityController {
     return this.prisma.role.findUnique({ where: { gid } }).then((role) => role?.rolename || fallbackRoles.find((item) => item.gid === gid)?.rolename || 'Company User');
   }
 
+  private async getBalancingAuthorityDropdown(valueField: string, textField: string) {
+    const lookups = await this.prisma.commonLookup.findMany({
+      where: {
+        table: { in: ['lookbaa', 'balancingAuthority', 'balancing_authority'] },
+        isActive: true,
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    const records = lookups.length
+      ? lookups
+      : [
+          { value: 'PJM', text: 'PJM Interconnection', id: 'PJM' },
+          { value: 'MISO', text: 'Midcontinent ISO', id: 'MISO' },
+          { value: 'CAISO', text: 'California ISO', id: 'CAISO' },
+          { value: 'ERCOT', text: 'Electric Reliability Council of Texas', id: 'ERCOT' },
+          { value: 'SPP', text: 'Southwest Power Pool', id: 'SPP' },
+          { value: 'NYISO', text: 'New York ISO', id: 'NYISO' },
+          { value: 'ISONE', text: 'ISO New England', id: 'ISONE' },
+        ];
+
+    return records.map((record: AnyRecord) => {
+      const value = String(record[valueField] ?? record.value ?? record.ID ?? record.id ?? '').trim();
+      const text = String(record[textField] ?? record.text ?? record.baa_desc ?? record.name ?? value).trim();
+      return {
+        ...record,
+        value,
+        text,
+        ID: value,
+        baa_desc: text,
+      };
+    });
+  }
+
   private async getRoleTypes() {
     const dbRoles = await this.prisma.role.findMany({
       where: { isActive: true },
       orderBy: { gid: 'asc' },
     });
     return dbRoles.length ? dbRoles.map((role) => this.toLegacyRole(role)) : fallbackRoles;
+  }
+
+  private splitUserName(name: string) {
+    const parts = this.stringValue(name).split(/\s+/).filter(Boolean);
+    return {
+      firstName: parts[0] || '',
+      lastName: parts.length > 1 ? parts.slice(1).join(' ') : '',
+    };
   }
 
   private booleanValue(value: any, fallback: boolean | undefined = false) {
