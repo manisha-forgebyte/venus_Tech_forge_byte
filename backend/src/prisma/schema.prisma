@@ -8,18 +8,27 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  uid       Int      @unique @default(autoincrement())
-  name      String
-  email     String   @unique
-  password  String
-  role      String   @default("Company User")
-  aid       Int      @default(1)
-  cid       Int      @default(1)
-  gid       Int      @default(3)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  uid        Int      @unique @default(autoincrement())
+  name       String
+  email      String   @unique
+  password   String
+  role       String   @default("Company User")
+  phone      String?
+  mobile     String?
+  isLocked   Boolean  @default(false)
+  companyIds String?
+  aid        Int      @default(1)
+  cid        Int      @default(1)
+  gid        Int      @default(3)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([cid])
+  @@index([aid])
+  @@index([gid])
+  @@index([isActive])
 }
 
 model Role {

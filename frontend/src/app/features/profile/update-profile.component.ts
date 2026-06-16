@@ -188,6 +188,7 @@ export class UpdateProfileComponent implements OnChanges {
   constructor(private toast: ToastService) {}
 
   ngOnChanges(changes: SimpleChanges) {
+    console.log('MODAL RECEIVED PROFILE', this.profile);
     if (changes['profile'] && this.profile && Object.keys(this.profile).length > 0) {
       this.formData = { 
         ...this.formData,

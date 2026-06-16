@@ -163,11 +163,18 @@ export class AuthService {
   }
 
   private toSafeUser(user: User) {
+    const { firstName, lastName } = this.parseName(user.name);
     return {
       id: user.id,
       uid: user.uid,
       name: user.name,
+      firstName,
+      lastName,
       email: user.email,
+      workPhone: user.phone || '',
+      mobilePhone: user.mobile || '',
+      phone: user.phone || '',
+      mobile: user.mobile || '',
       role: user.role,
       aid: user.aid,
       cid: user.cid,
@@ -175,6 +182,17 @@ export class AuthService {
       isActive: user.isActive,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+    };
+  }
+
+  private parseName(name: string) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length <= 1) {
+      return { firstName: parts[0] || '', lastName: '' };
+    }
+    return {
+      firstName: parts.slice(0, -1).join(' '),
+      lastName: parts.slice(-1).join(' '),
     };
   }
 }

@@ -6,15 +6,44 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(aid?: number, activeOnly = true) {
-    return this.prisma.company.findMany({
-      where: {
-        ...(aid ? { aid } : {}),
-        ...(activeOnly ? { isActive: true } : {}),
-      },
-      orderBy: { cid: 'asc' },
-    });
-  }
+ async findAll(aid?: number, activeOnly = true) {
+  console.log('FINDALL CALLED');
+
+  const companies = await this.prisma.company.findMany({
+    where: {
+      ...(aid ? { aid } : {}),
+      ...(activeOnly ? { isActive: true } : {}),
+    },
+    orderBy: {
+      cid: 'asc',
+    },
+  });
+
+  const users = await this.prisma.user.findMany();
+
+  return companies.map((company) => {
+    const userCount = users.filter((user) => {
+      const companyIds = (user.companyIds || '')
+        .split(',')
+        .map((id: string) => id.trim());
+
+      return companyIds.includes(String(company.cid));
+    }).length;
+
+    console.log(
+      'CID:',
+      company.cid,
+      'UserCount:',
+      userCount
+    );
+
+    return {
+      ...company,
+      userCount,
+      users: userCount,
+    };
+  });
+}
 
   async findOne(cid: number) {
     const company = await this.prisma.company.findUnique({ where: { cid } });

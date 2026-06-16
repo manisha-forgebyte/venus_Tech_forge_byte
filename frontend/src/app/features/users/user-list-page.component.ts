@@ -133,7 +133,14 @@ import { Router } from '@angular/router';
     </div>
 
     <!-- Modals -->
-    <app-add-new-user [(open)]="isAddUserOpen" [initialData]="currentEditUser" [mode]="isEditMode ? 'edit' : 'add'" (openChange)="onAddModalOpenChange($event)" (saveEvent)="onUserSaved($event)"></app-add-new-user>
+      <app-add-new-user
+*ngIf="isAddUserOpen"
+[(open)]="isAddUserOpen"
+[initialData]="currentEditUser"
+[mode]="isEditMode ? 'edit' : 'add'"
+(openChange)="onAddModalOpenChange($event)"
+(saveEvent)="onUserSaved($event)">
+</app-add-new-user>
     <app-manage-inactive-users [(open)]="isManageInactiveOpen" (recordChanged)="loadUsers()"></app-manage-inactive-users>
   `,
   styleUrls: ['./user-list-page.component.scss']
@@ -450,9 +457,16 @@ export class UserListPageComponent implements OnInit {
       return;
     }
 
-    
+    const targetUserId = Number(
+      user.uid ?? user.Uid ?? user.UID ?? user.id ?? user.userId ?? user.userID ?? user.raw?.uid ?? user.raw?.id ?? 0
+    );
+    if (!targetUserId || Number.isNaN(targetUserId)) {
+      this.toast.error('Unable to determine selected user ID for editing.');
+      return;
+    }
+
     this.isLoading = true;
-    this.apiService.getUserByID(user.id).subscribe({
+    this.apiService.getUserByID(targetUserId).subscribe({
       next: (data) => {
         
         let userRecord: any = null;
@@ -471,20 +485,37 @@ export class UserListPageComponent implements OnInit {
             userCompanies = companyTable.rows.map((c: any) => c.cid);
           }
         } else {
-          userRecord = data;
+             userRecord = data?.data ?? data;
         }
         
-        const record = userRecord ?? this.extractRecords(data)?.[0] ?? data;
+        const record =
+                        userRecord ??
+                        this.extractRecords(data)?.[0] ??
+                        data?.data ??
+                        data;
+        console.log('API Response Full:', data);
+        console.log('API Response Data:', data?.data);
+        console.log('REAL RECORD:', JSON.stringify(record, null, 2));
+      
         
         
+        let selectedCompaniesArray: any[] = [];
+        if (record.companyIds && typeof record.companyIds === 'string') {
+          selectedCompaniesArray = record.companyIds.split(',').map((id: string) => Number(id.trim())).filter((id: number) => !isNaN(id));
+        }
+        if (selectedCompaniesArray.length === 0) {
+          selectedCompaniesArray = userCompanies.length > 0 ? userCompanies : [record.cid ?? record.company ?? record.companyId ?? record.Cid ?? user.raw?.cid ?? user.raw?.Cid ?? ''];
+        }
+
         this.currentEditUser = {
-          id: record.uid ?? record.Uid ?? record.id ?? record.userId ?? user.id,
+          id: record.uid ?? record.Uid ?? record.UID ?? record.id ?? record.userId ?? user.id,
           gid: record.gid ?? record.Gid ?? (record.rolename === 'Read Only User' || record.role === 'Read Only User' ? 4 : 3),
           firstName: record.firstName ?? record.first_name ?? record.fname ?? record.Fname ?? '',
           lastName: record.lastName ?? record.last_name ?? record.lname ?? record.Lname ?? '',
           email: record.eMail ?? record.email ?? record.Email ?? '',
           role: record.role ?? record.role_cd ?? record.userRole ?? 'company',
-          selectedCompanies: userCompanies.length > 0 ? userCompanies : [record.cid ?? record.company ?? record.companyId ?? record.Cid ?? user.raw?.cid ?? user.raw?.Cid ?? ''],
+          selectedCompanies: selectedCompaniesArray,
+          selectedCompany: selectedCompaniesArray.length > 0 ? selectedCompaniesArray[0].toString() : '',
           workPhone: record.phone ?? record.workPhone ?? record.work_phone ?? '',
           mobilePhone: record.mobile ?? record.mobilePhone ?? record.mobile_phone ?? '',
           isLocked: !!(record.locked ?? record.isLocked ?? record.Locked ?? false),
@@ -596,7 +627,7 @@ export class UserListPageComponent implements OnInit {
       const primaryCompany = companies.length > 0 ? companies[0] : 1;
 
       const payload = {
-        uid: currentModifierId,
+        uid: 0,
         firstName: saved.firstName,
         lastName: saved.lastName,
         eMail: saved.email,

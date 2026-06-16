@@ -270,9 +270,22 @@ export class AddNewUserComponent implements OnChanges, OnInit {
     let targetCid: number | null = null;
     let targetAid: number | null = null;
 
-    if (this.mode === 'edit' && this.userData.selectedCompany) {
-      targetCid = Number(this.userData.selectedCompany);
-      targetAid = this.userData.aid ? Number(this.userData.aid) : null;
+    if (this.mode === 'edit') {
+      if (this.userData.selectedCompany) {
+        targetCid = Number(this.userData.selectedCompany);
+      }
+      if (this.userData.selectedCompanies && this.userData.selectedCompanies.length > 0) {
+        targetCid = targetCid || Number(this.userData.selectedCompanies[0]);
+      }
+      if (this.userData.aid) {
+        targetAid = Number(this.userData.aid);
+      }
+      if (!targetAid && targetCid) {
+        const currentCompany = this.companyContextService.getCompany();
+        if (currentCompany && Number(currentCompany.cid) === Number(targetCid)) {
+          targetAid = currentCompany.aid ?? null;
+        }
+      }
     } else if (this.mode === 'add') {
       
       if (this.userData.selectedCompany) {
@@ -334,23 +347,25 @@ export class AddNewUserComponent implements OnChanges, OnInit {
       }
     }
   }
-
-  loadCompanies(agid: number = 0) {
+loadCompanies(agid: number = 0) {
     this.apiService.getCompanyListByUIDAGID(this.getUidFromStorage(), agid).subscribe({
-      next: (data) => {
-        if (Array.isArray(data)) {
-          this.companies = data.map(c => ({
-            name: c.Title ?? c.company_name ?? c.name ?? 'Unknown',
-            id: c.company_id ?? c.cid ?? c.id ?? '',
-            gid: c.gid ?? c.groupId ?? c.agid ?? ''
-          }));
-          console.log(`Loaded companies for AGID ${agid}:`, this.companies);
-        }
-      },
-      error: (err) => console.error('Error fetching companies by UID/AGID:', err)
-    });
-  }
+        next: (data: any) => {
+          // console.log('RAW COMPANY DATA =>', data);
 
+            if (Array.isArray(data)) {
+
+               this.companies = data.map((c: any) => ({
+               name: c.Title ?? c.company_name ?? c.name ?? 'Unknown',
+               id: c.cid,
+               gid: c.agid
+                }));
+
+                // console.log('COMPANIES =>', this.companies);
+            }
+        },
+        error: (err) => console.error('Error fetching companies by UID/AGID:', err)
+    });
+}
   onAccountGroupChange(groupId: any) {
     const agid = groupId ? Number(groupId) : 0;
     this.loadCompanies(agid);
@@ -416,25 +431,26 @@ export class AddNewUserComponent implements OnChanges, OnInit {
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['initialData'] && this.initialData) {
-      
+      const selectedCompanies = Array.isArray(this.initialData.selectedCompanies)
+        ? this.initialData.selectedCompanies
+        : (this.initialData.selectedCompany ? [this.initialData.selectedCompany] : []);
+
       this.userData = {
         roleGid: this.initialData.gid ?? this.initialData.roleGid ?? (this.initialData.role === 'readonly' ? 4 : 3),
         accountGroup: '',
-        selectedCompany: this.initialData.selectedCompany?.toString() ?? this.userData.selectedCompany,
-        selectedCompanies: Array.isArray(this.initialData.selectedCompanies) ? this.initialData.selectedCompanies : (this.initialData.selectedCompany ? [this.initialData.selectedCompany] : []),
-        firstName: this.initialData.firstName ?? this.userData.firstName,
-        lastName: this.initialData.lastName ?? this.userData.lastName,
-        email: this.initialData.email ?? this.userData.email,
+        selectedCompany: selectedCompanies.length > 0 ? selectedCompanies[0].toString() : (this.initialData.selectedCompany?.toString() ?? this.userData.selectedCompany),
+        selectedCompanies,
+        firstName: this.initialData.firstName ?? this.initialData.first_name ?? this.initialData.fname ?? this.userData.firstName,
+        lastName: this.initialData.lastName ?? this.initialData.last_name ?? this.initialData.lname ?? this.userData.lastName,
+        email: this.initialData.email ?? this.initialData.eMail ?? this.initialData.Email ?? this.userData.email,
         autoGenerate: false,
         isLocked: !!(this.initialData.isLocked ?? this.initialData.locked),
         password: '',
-        workPhone: this.initialData.workPhone ?? this.userData.workPhone,
-        mobilePhone: this.initialData.mobilePhone ?? this.userData.mobilePhone,
-        aid: this.initialData.aid ?? ''
+        workPhone: this.initialData.phone ?? this.initialData.workPhone ?? this.initialData.work_phone ?? this.userData.workPhone,
+        mobilePhone: this.initialData.mobile ?? this.initialData.mobilePhone ?? this.initialData.mobile_phone ?? this.userData.mobilePhone,
+        aid: this.initialData.aid ?? this.initialData.Aid ?? this.initialData.AccountID ?? ''
       };
-      
-      
-      if (this.mode === 'edit' && this.userData.aid) {
+      if (this.mode === 'edit') {
         this.initialFetch();
       }
     }
@@ -463,7 +479,8 @@ export class AddNewUserComponent implements OnChanges, OnInit {
     } else {
       this.userData.selectedCompanies = this.userData.selectedCompanies.filter(c => c !== id);
     }
-    console.log('Selected companies:', this.userData.selectedCompanies);
+    // console.log('Clicked Company ID:', id);
+    // console.log('Selected Companies:', this.userData.selectedCompanies);
   }
 
   
@@ -553,6 +570,13 @@ export class AddNewUserComponent implements OnChanges, OnInit {
 
     
     const payload: any = { ...this.userData };
+            payload.companyIds = this.userData.selectedCompanies
+              .filter((id: any) => !isNaN(Number(id)))
+              .join(',');
+
+            payload.CompanyIds = payload.companyIds;
+
+          // console.log('SAVE PAYLOAD =>', payload);
     if (this.mode === 'edit') {
       if (!pwdRaw) {
         

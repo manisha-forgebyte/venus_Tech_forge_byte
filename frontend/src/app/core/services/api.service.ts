@@ -27,7 +27,10 @@ export class ApiService {
     private getHeaders(): HttpHeaders {
         const token = localStorage.getItem('authToken');
         const headers: any = {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Expires': '0'
         };
 
         if (token) {

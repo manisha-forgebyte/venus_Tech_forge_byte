@@ -144,6 +144,8 @@ export class ProfilePageComponent implements OnInit {
         const record = this.extractUserRecord(data);
         if (record) {
           this.profile = this.normalizeUserProfile(record);
+          console.log('record=', record);
+          console.log('normalized=', this.profile);
         }
         this.isLoading = false;
       },
@@ -189,22 +191,31 @@ export class ProfilePageComponent implements OnInit {
   }
 
   private extractUserRecord(apiData: any): any {
-    if (!apiData) { return null; }
-
-    
-    if (Array.isArray(apiData)) {
-      const tableWithRows = apiData.find(t => t && Array.isArray(t.rows) && t.rows.length > 0);
-      if (tableWithRows) {
-        return tableWithRows.rows[0];
-      }
-    }
-
-    if (apiData.rows && Array.isArray(apiData.rows) && apiData.rows.length > 0) {
-      return apiData.rows[0];
-    }
-
-    return apiData; 
+  if (!apiData) {
+    return null;
   }
+
+  // Handle API response structure
+  if (apiData.success && apiData.data) {
+    return apiData.data;
+  }
+
+  if (Array.isArray(apiData)) {
+    const tableWithRows = apiData.find(
+      t => t && Array.isArray(t.rows) && t.rows.length > 0
+    );
+
+    if (tableWithRows) {
+      return tableWithRows.rows[0];
+    }
+  }
+
+  if (apiData.rows && Array.isArray(apiData.rows) && apiData.rows.length > 0) {
+    return apiData.rows[0];
+  }
+
+  return apiData;
+}
 
   denormalizeUserProfile(normalized: any): any {
     if (!normalized) { return {}; }
@@ -251,6 +262,7 @@ export class ProfilePageComponent implements OnInit {
         if (record) {
           this.profile = this.normalizeUserProfile(record);
         }
+        console.log('PROFILE SENT TO MODAL', this.profile);
         this.isLoading = false;
         this.isUpdateOpen = true; 
       },

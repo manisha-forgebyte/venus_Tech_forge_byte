@@ -69,7 +69,9 @@ import { CompanyContextService } from '../../core/services/company-context.servi
                 <td><span class="link-text" (click)="viewCompanyDetails(company)">{{ company.Company || company.Title || company.name || 'N/A' }}</span></td>
                 <td>{{ company.company_id || company.companyId || company.cid || 'N/A' }}</td>
                 <td>{{ company.validation_email || company.validationEmail || company.email || company.eMail || 'N/A' }}</td>
-                <td style="text-align:center;">{{ company.userSeeds ?? company.usersCount ?? company.Users ?? 0 }}</td>
+                <td style="text-align:center;">
+                          {{ company.userCount ?? 0 }}
+                        </td>
                 <td style="text-align:center;">
                   <span class="status-pill" [class.active]="company.IsActive || company.isActive" [class.inactive]="!(company.IsActive || company.isActive)">
                     {{ (company.IsActive || company.isActive) ? 'Active' : 'Inactive' }}
@@ -324,6 +326,7 @@ export class AdminCompanyComponent implements OnInit {
 
       this.apiService.adminGetCompaniesByAID(aid).subscribe({
         next: (response: any) => {
+          // console.log('COMPANY API RESPONSE =>', response);
           this.isLoading = false;
           this.processCompanyList(response, aid);
         },
@@ -358,7 +361,10 @@ export class AdminCompanyComponent implements OnInit {
     }
 
     if (rawList.length > 0) {
-      this.companies = rawList.map((c: any) => this.normalizeCompany(c));
+      this.companies = rawList.map((c: any) => ({
+        ...this.normalizeCompany(c),
+        userCount: c.userCount ?? c.UserCount ?? c.users ?? 0
+      }));
     } else {
       this.filterCompaniesByAccount();
     }

@@ -53,6 +53,7 @@ export class CompatibilityController {
   constructor(
     private readonly authService: AuthService,
     private readonly prisma: PrismaService,
+   
   ) {}
 
   @Get('health')
@@ -1620,18 +1621,80 @@ export class CompatibilityController {
     };
   }
 
-  private async listCompanies(filter: { aid?: number; cid?: number; activeOnly?: boolean }) {
-    const companies = await this.prisma.company.findMany({
-      where: {
-        ...(filter.aid ? { aid: filter.aid } : {}),
-        ...(filter.cid ? { cid: filter.cid } : {}),
-        ...(filter.activeOnly === false ? {} : { isActive: true }),
-      },
-      orderBy: { cid: 'asc' },
-    });
-    return companies.map((company) => this.toLegacyCompany(company));
-  }
+   private async listCompanies(filter: {
+  aid?: number;
+  cid?: number;
+  activeOnly?: boolean;
+}) {
+  // console.log('LIST COMPANIES FILTER:', filter);
 
+  const companies = await this.prisma.company.findMany({
+    where: {
+      ...(filter.aid ? { aid: filter.aid } : {}),
+      ...(filter.cid ? { cid: filter.cid } : {}),
+      ...(filter.activeOnly === false ? {} : { isActive: true }),
+    },
+    orderBy: { cid: 'asc' },
+  });
+
+  // console.log('TOTAL COMPANIES:', companies.length);
+
+  const users = await this.prisma.user.findMany();
+
+  // console.log('TOTAL USERS:', users.length);
+
+  return companies.map((company) => {
+    // console.log(
+    //   // '----------------------------'
+    // );
+    // console.log(
+    //   'COMPANY:',
+    //   company.cid,
+    //   company.companyName 
+    // );
+
+    const userCount = users.filter((user) => {
+      // console.log(
+      //   'USER:',
+      //   user.uid,
+      //   'companyIds:',
+      //   user.companyIds
+      // );
+
+      const companyIds = (user.companyIds || '')
+        .split(',')
+        .map((id: string) => id.trim());
+
+      const matched = companyIds.includes(
+        String(company.cid)
+      );
+
+      if (matched) {
+        // console.log(
+        //   'MATCH FOUND => User:',
+        //   user.uid,
+        //   'Company:',
+        //   company.cid
+        // );
+      }
+
+      return matched;
+    }).length;
+
+    // console.log(
+    //   'CID:',
+    //   company.cid,
+    //   'UserCount:',
+    //   userCount
+    // );
+
+    return {
+      ...this.toLegacyCompany(company),
+      userCount,
+    };
+  });
+}
+         
   private async listCompaniesByUser(uid: number, agid: number) {
     const user = uid ? await this.prisma.user.findUnique({ where: { uid } }) : null;
     const companies = await this.prisma.company.findMany({
@@ -1723,48 +1786,62 @@ export class CompatibilityController {
   }
 
   private async updateCompanyFilingFlags(body: AnyRecord, query: AnyRecord) {
-    const cid = this.numberValue(body.cid || body.Cid || query.cid);
+    const cid = this.numberValue(body.cid || body.Cid || body.CID || body.companyId || body.companyID || query.cid);
+    if (!cid) {
+      return {
+        success: false,
+        message: 'Company ID (cid) is required to update filing flags',
+        data: body ?? {},
+      };
+    }
+
     const persistedData = this.cleanDataForPersist(body);
     const existing = await this.prisma.companyFilingFlags.findUnique({ where: { cid } });
+    const existingData = this.toRecord(existing?.data);
     const mergedData = {
-      ...this.toRecord(existing?.data),
+      ...existingData,
       ...persistedData,
-      incAuth: this.booleanValue(body.incAuth ?? body.IncAuth, false),
-      incCS: this.booleanValue(body.incCS ?? body.IncCS, false),
-      incMit: this.booleanValue(body.incMit ?? body.IncMit, false),
-      incOR: this.booleanValue(body.incOR ?? body.IncOR, false),
-      incSL: this.booleanValue(body.incSL ?? body.IncSL, false),
-      incEtoE: this.booleanValue(body.incEtoE ?? body.IncEtoE, false),
-      incEtoGen: this.booleanValue(body.incEtoGen ?? body.IncEtoGen, false),
-      incEtoPPA: this.booleanValue(body.incEtoPPA ?? body.IncEtoPPA, false),
-      incEtoVA: this.booleanValue(body.incEtoVA ?? body.IncEtoVA, false),
-      incIPSS: this.booleanValue(body.incIPSS ?? body.IncIPSS, false),
-      incIMSS: this.booleanValue(body.incIMSS ?? body.IncIMSS, false),
-      sandboxTest: this.booleanValue(body.sandboxTest ?? body.SandboxTest, false),
+      incAuth: this.booleanValue(body.incAuth ?? body.IncAuth, existingData.incAuth ?? existingData.IncAuth ?? false),
+      incCS: this.booleanValue(body.incCS ?? body.IncCS, existingData.incCS ?? existingData.IncCS ?? false),
+      incMit: this.booleanValue(body.incMit ?? body.IncMit, existingData.incMit ?? existingData.IncMit ?? false),
+      incOR: this.booleanValue(body.incOR ?? body.IncOR, existingData.incOR ?? existingData.IncOR ?? false),
+      incSL: this.booleanValue(body.incSL ?? body.IncSL, existingData.incSL ?? existingData.IncSL ?? false),
+      incEtoE: this.booleanValue(body.incEtoE ?? body.IncEtoE, existingData.incEtoE ?? existingData.IncEtoE ?? false),
+      incEtoGen: this.booleanValue(body.incEtoGen ?? body.IncEtoGen, existingData.incEtoGen ?? existingData.IncEtoGen ?? false),
+      incEtoPPA: this.booleanValue(body.incEtoPPA ?? body.IncEtoPPA, existingData.incEtoPPA ?? existingData.IncEtoPPA ?? false),
+      incEtoVA: this.booleanValue(body.incEtoVA ?? body.IncEtoVA, existingData.incEtoVA ?? existingData.IncEtoVA ?? false),
+      incIPSS: this.booleanValue(body.incIPSS ?? body.IncIPSS, existingData.incIPSS ?? existingData.IncIPSS ?? false),
+      incIMSS: this.booleanValue(body.incIMSS ?? body.IncIMSS, existingData.incIMSS ?? existingData.IncIMSS ?? false),
+      sandboxTest: this.booleanValue(body.sandboxTest ?? body.SandboxTest, existingData.sandboxTest ?? existingData.SandboxTest ?? false),
       updatedAt: new Date().toISOString(),
     };
+    const includeAssets = this.booleanValue(body.includeAssets ?? body.IncludeAssets, existing?.includeAssets ?? true);
+    const includeEntities = this.booleanValue(body.includeEntities ?? body.IncludeEntities, existing?.includeEntities ?? true);
+    const includeFilings = this.booleanValue(body.includeFilings ?? body.IncludeFilings, existing?.includeFilings ?? true);
+
     const record = await this.prisma.companyFilingFlags.upsert({
       where: { cid },
       update: {
-        includeAssets: this.booleanValue(body.includeAssets ?? body.IncludeAssets, true),
-        includeEntities: this.booleanValue(body.includeEntities ?? body.IncludeEntities, true),
-        includeFilings: this.booleanValue(body.includeFilings ?? body.IncludeFilings, true),
+        includeAssets,
+        includeEntities,
+        includeFilings,
         data: mergedData,
       },
       create: {
         cid,
-        includeAssets: this.booleanValue(body.includeAssets ?? body.IncludeAssets, true),
-        includeEntities: this.booleanValue(body.includeEntities ?? body.IncludeEntities, true),
-        includeFilings: this.booleanValue(body.includeFilings ?? body.IncludeFilings, true),
+        includeAssets,
+        includeEntities,
+        includeFilings,
         data: mergedData,
       },
     });
 
+    const company = await this.prisma.company.findUnique({ where: { cid } });
     await this.prisma.company.updateMany({
       where: { cid },
       data: {
         data: {
-          ...(this.toRecord((await this.prisma.company.findUnique({ where: { cid } }))?.data)),
+          ...this.toRecord(company?.data),
           filingFlags: mergedData,
           filingFlagsUpdatedAt: mergedData.updatedAt,
         },
