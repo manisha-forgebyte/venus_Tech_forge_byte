@@ -107,6 +107,14 @@ async function main() {
     create: { name: 'Local Admin', email: adminEmail, password, role: 'Site Admin', aid: 1, cid: 1, gid: 1, isActive: true },
   });
 
+  const gunaEmail = 'guna@gmail.com';
+  const gunaPassword = await bcrypt.hash('Latha@2004', 10);
+  await prisma.user.upsert({
+    where: { email: gunaEmail },
+    update: { name: 'Guna User', password: gunaPassword, role: 'Company User', aid: 1, cid: 1, gid: 1, isActive: true },
+    create: { name: 'Guna User', email: gunaEmail, password: gunaPassword, role: 'Company User', aid: 1, cid: 1, gid: 1, isActive: true },
+  });
+
   await prisma.user.updateMany({ where: { email: 'admin@venu.tech' }, data: { isActive: false } });
 }
 

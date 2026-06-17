@@ -14,6 +14,7 @@ import { MarketModule } from './modules/market/market.module';
 import { ReserveModule } from './modules/reserve/reserve.module';
 import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { DiagnosticsModule } from './modules/diagnostics/diagnostics.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ReserveModule,
     PrismaModule,
     CompatibilityModule,
+    DiagnosticsModule,
   ],
 
   controllers: [AppController],
