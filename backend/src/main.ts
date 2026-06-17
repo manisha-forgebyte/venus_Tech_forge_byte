@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { execSync } from 'child_process';
 
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -44,6 +45,34 @@ async function bootstrap() {
   console.log(`Allowed CORS origins: ${allowedOrigins.join(', ')}`);
 
   // Start backend server
+  // Before starting, verify that the Prisma tables exist; if not, attempt runtime seeding.
+  try {
+    // Use a lightweight Prisma client to probe the User table existence.
+    // Importing at runtime to avoid adding direct compile-time dependency issues.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    try {
+      // Try a simple query to see if `User` table exists
+      await prisma.user.findFirst({ take: 1 });
+    } catch (innerErr) {
+      const message = String(innerErr?.message || innerErr);
+      if (message.includes("does not exist") || message.includes('relation \"User\" does not exist')) {
+        console.warn('Prisma User table missing — attempting runtime seed via scripts/prisma-seed-runtime.js');
+        try {
+          execSync('node ./scripts/prisma-seed-runtime.js', { stdio: 'inherit', cwd: process.cwd(), env: process.env });
+          console.log('Runtime seed executed');
+        } catch (seedErr) {
+          console.error('Runtime seed failed:', seedErr);
+        }
+      }
+    } finally {
+      await prisma.$disconnect();
+    }
+  } catch (probeErr) {
+    console.warn('Prisma probe skipped or failed:', probeErr?.message || probeErr);
+  }
+
   const port = Number(process.env.PORT || DEFAULT_PORT);
   await app.listen(port);
 
