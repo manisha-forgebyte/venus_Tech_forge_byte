@@ -18,15 +18,30 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter(), new HttpExceptionFilter());
 
   // Enable CORS for the Angular dev server.
-  const allowedOrigins = (process.env.FRONTEND_URL || DEFAULT_FRONTEND_ORIGIN)
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  // Enable CORS for the frontend. Allow explicit origins from FRONTEND_URL
+  // or fall back to localhost dev and the known Railway frontend host.
+  const frontendEnv = process.env.FRONTEND_URL || '';
+  const fallbackOrigins = [DEFAULT_FRONTEND_ORIGIN, 'https://caring-reverence-production-e548.up.railway.app'];
+
+  const allowedOrigins = frontendEnv
+    ? frontendEnv
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+    : fallbackOrigins;
 
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. server-to-server, mobile clients)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      console.warn(`Blocked CORS origin: ${origin}`);
+      return callback(new Error('Origin not allowed by CORS'));
+    },
     credentials: true,
   });
+
+  console.log(`Allowed CORS origins: ${allowedOrigins.join(', ')}`);
 
   // Start backend server
   const port = Number(process.env.PORT || DEFAULT_PORT);
